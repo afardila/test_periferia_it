@@ -1,128 +1,123 @@
+/** Ciclo del agente: modelo → herramientas → modelo… con tope de iteraciones y de tokens, y confirmación humana. */
 import fs from "node:fs";
-import Anthropic from "@anthropic-ai/sdk";
-import { executeTool, toAnthropicTools, type AnyTool } from "./tools/registry.js";
-import { createStore, type Store } from "./data.js";
-import { tools } from "./tools/contratos.js"; // ← en el Reto 3: "./tools/oc.js"; en el Reto 1: "./tools/proveedor.js"
+import path from "node:path";
+import { tools } from "./tools/contratos.js";
+import { ejecutar, paraLLM, type ToolCtx } from "./tools/registry.js";
+import { borrarSalida, leerProcesados, leerTextoOut, maestroSinCrear, type Fila, type Procesados } from "./tools/maestro.js";
+import { ErrorLLM, type Bloque, type LLM, type Mensaje, type Uso } from "./llm/adapter.js";
 
-const MODEL = process.env.MODEL ?? "claude-sonnet-5-5";
-const MAX_TURNS = 12; // tope de iteraciones del bucle (evita ciclos y costos descontrolados)
-const SYSTEM = fs.readFileSync(new URL("../agent/prompt.md", import.meta.url), "utf8");
-
-export type AgentEvent =
+export type Evento =
+  | { type: "user"; text: string }
   | { type: "text"; text: string }
-  | { type: "tool_call"; id: string; name: string; input: unknown }
-  | { type: "tool_result"; id: string; name: string; ok: boolean; output: unknown }
-  | { type: "confirmation_required"; id: string; name: string; input: unknown }
+  | { type: "tool"; id: string; name: string; input: unknown; ok: boolean; output: unknown }
   | { type: "error"; message: string };
+export type EventoHerramienta = Extract<Evento, { type: "tool" }>;
 
-interface Pending {
-  blocks: Anthropic.ToolUseBlock[];
-  idx: number;
-  results: Anthropic.ToolResultBlockParam[];
+export interface ChatResult {
+  status: number;
+  reply: string;
+  toolCalls: EventoHerramienta[];
+  needsConfirmation: boolean;
+  events: Evento[];
+  usage: Uso & { calls: number };
 }
-interface Session {
-  store: Store; // estado propio de la sesión: los casos no se contaminan entre sí
-  messages: Anthropic.MessageParam[];
-  pending?: Pending;
-  usage: { input: number; output: number; cache_read: number; cache_write: number; calls: number };
+interface Sesion {
+  mensajes: Mensaje[];
+  eventos: Evento[];
+  usage: Uso & { calls: number };
+  turnosUsuario: number;
+  bloqueados: Map<string, number>; // mensaje_id → turno de usuario en que se pidió revisión
 }
 
-const sessions = new Map<string, Session>();
-const MAX_SESSIONS = 200; // tope para no crecer sin límite en un servicio público
-function getSession(id: string): Session {
-  let s = sessions.get(id);
-  if (!s) {
-    if (sessions.size >= MAX_SESSIONS) sessions.delete(sessions.keys().next().value!);
-    sessions.set(id, (s = { store: createStore(), messages: [], usage: { input: 0, output: 0, cache_read: 0, cache_write: 0, calls: 0 } }));
-  }
-  return s;
-}
-export const storeOf = (id: string) => getSession(id).store;
-export const resetSession = (id: string) => sessions.delete(id);
-export const usageOf = (id: string) => getSession(id).usage;
+const ROOT = path.resolve(import.meta.dirname, "..");
+const leer = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
+/** Comportamiento (agent/prompt.md) + conocimiento del proceso (src/knowledge/). La ejecución vive en src/tools/. */
+export const cargarSistema = () => `${leer("agent/prompt.md")}\n\n# Conocimiento del proceso\n\n${leer("src/knowledge/registro-contratos.md")}`;
 
-let client: Anthropic | null = null;
-const getClient = () => (client ??= new Anthropic()); // lee ANTHROPIC_API_KEY del entorno
+export interface OpcionesAgente { llm: LLM; directory?: string; maxIter?: number; maxTokens?: number; maxSesiones?: number }
 
-const toolByName = (n: string): AnyTool | undefined => tools.find((t) => t.name === n);
-const asContent = (o: unknown) => (typeof o === "string" ? o : JSON.stringify(o));
+export function crearAgente(opts: OpcionesAgente) {
+  const { llm } = opts;
+  const directory = opts.directory ?? ROOT;
+  const maxIter = opts.maxIter ?? Number(process.env.MAX_ITER ?? 25);
+  const maxTokens = opts.maxTokens ?? Number(process.env.MAX_SESSION_TOKENS ?? 300_000);
+  const maxSesiones = opts.maxSesiones ?? 200;
+  const sistema = cargarSistema();
+  const sesiones = new Map<string, Sesion>();
+  const ctxDe = (id: string): ToolCtx => ({ directory, sessionId: id });
+  const gastados = (s: Sesion) => s.usage.input + s.usage.output + s.usage.cache_write;
+  const resumir = (o: string) => (o.length > 4000 ? o.slice(0, 4000) + "…" : o);
 
-/** Procesa los tool_use de un turno, en orden. Se detiene si hay una acción que requiere confirmación humana. */
-async function processBlocks(s: Session, p: Pending, out: AgentEvent[]): Promise<"paused" | "done"> {
-  for (; p.idx < p.blocks.length; p.idx++) {
-    const b = p.blocks[p.idx];
-    out.push({ type: "tool_call", id: b.id, name: b.name, input: b.input });
-    if (toolByName(b.name)?.requiresConfirmation) {
-      s.pending = p;
-      out.push({ type: "confirmation_required", id: b.id, name: b.name, input: b.input });
-      return "paused";
+  function obtener(id: string): Sesion {
+    let s = sesiones.get(id);
+    if (!s) {
+      if (sesiones.size >= maxSesiones) { const viejo = sesiones.keys().next().value!; sesiones.delete(viejo); borrarSalida(ctxDe(viejo)); }
+      sesiones.set(id, (s = { mensajes: [{ role: "system", content: sistema }], eventos: [], usage: { input: 0, output: 0, cache_read: 0, cache_write: 0, calls: 0 }, turnosUsuario: 0, bloqueados: new Map() }));
     }
-    const r = await executeTool(tools, b.name, b.input, { store: s.store });
-    out.push({ type: "tool_result", id: b.id, name: b.name, ok: r.ok, output: r.ok ? r.output : r.error });
-    p.results.push({ type: "tool_result", tool_use_id: b.id, is_error: !r.ok, content: asContent(r.ok ? r.output : r.error) });
+    return s;
   }
-  s.messages.push({ role: "user", content: p.results });
-  s.pending = undefined;
-  return "done";
-}
 
-/** Bucle del agente: modelo → herramientas → modelo… hasta que responde sin pedir herramientas. */
-async function drive(s: Session, out: AgentEvent[]) {
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const resp = await getClient().messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
-      tools: toAnthropicTools(tools),
-      messages: s.messages,
-    });
-    s.usage.calls++;
-    s.usage.input += resp.usage.input_tokens;
-    s.usage.output += resp.usage.output_tokens;
-    s.usage.cache_read += resp.usage.cache_read_input_tokens ?? 0;
-    s.usage.cache_write += resp.usage.cache_creation_input_tokens ?? 0;
-    s.messages.push({ role: "assistant", content: resp.content });
+  async function chat(id: string, message: string): Promise<ChatResult> {
+    const s = obtener(id);
+    const toolCalls: EventoHerramienta[] = []; const nuevos: Evento[] = [];
+    let needsConfirmation = false; let reply = ""; let status = 200;
+    const resultado = (): ChatResult => ({ status, reply, toolCalls, needsConfirmation, events: nuevos, usage: { ...s.usage } });
+    const emitir = (e: Evento) => { s.eventos.push(e); nuevos.push(e); };
 
-    for (const b of resp.content) if (b.type === "text" && b.text.trim()) out.push({ type: "text", text: b.text });
-    const uses = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-    if (!uses.length) return;
-    const status = await processBlocks(s, { blocks: uses, idx: 0, results: [] }, out);
-    if (status === "paused") return;
-  }
-  out.push({ type: "error", message: `Se alcanzó el máximo de ${MAX_TURNS} iteraciones.` });
-}
-
-export async function chat(sessionId: string, message: string): Promise<AgentEvent[]> {
-  const s = getSession(sessionId);
-  const out: AgentEvent[] = [];
-  if (s.pending) return [{ type: "error", message: "Hay una acción pendiente de confirmación. Apruébala o recházala primero." }];
-  s.messages.push({ role: "user", content: message });
-  try { await drive(s, out); } catch (e) { out.push({ type: "error", message: (e as Error).message }); }
-  return out;
-}
-
-/** El humano aprueba o rechaza la acción en pausa; luego el agente continúa. */
-export async function confirm(sessionId: string, approve: boolean, note?: string): Promise<AgentEvent[]> {
-  const s = getSession(sessionId);
-  const p = s.pending;
-  const out: AgentEvent[] = [];
-  if (!p) return [{ type: "error", message: "No hay ninguna acción pendiente." }];
-  const b = p.blocks[p.idx];
-  try {
-    if (approve) {
-      const r = await executeTool(tools, b.name, b.input, { store: s.store });
-      out.push({ type: "tool_result", id: b.id, name: b.name, ok: r.ok, output: r.ok ? r.output : r.error });
-      p.results.push({ type: "tool_result", tool_use_id: b.id, is_error: !r.ok, content: asContent(r.ok ? r.output : r.error) });
-    } else {
-      const msg = `El humano RECHAZÓ esta acción${note ? `: ${note}` : ""}. No se ejecutó nada.`;
-      out.push({ type: "tool_result", id: b.id, name: b.name, ok: false, output: msg });
-      p.results.push({ type: "tool_result", tool_use_id: b.id, is_error: true, content: msg });
+    if (gastados(s) >= maxTokens) {
+      status = 429; reply = `Esta sesión alcanzó el tope de tokens (${maxTokens}). Inicia una nueva sesión para continuar.`;
+      nuevos.push({ type: "error", message: reply }); return resultado();
     }
-    p.idx++;
-    const status = await processBlocks(s, p, out);
-    if (status === "done") await drive(s, out);
-  } catch (e) {
-    out.push({ type: "error", message: (e as Error).message });
+    const base = s.mensajes.length;
+    s.turnosUsuario++; s.mensajes.push({ role: "user", content: message }); emitir({ type: "user", text: message });
+    const ctx: ToolCtx = { ...ctxDe(id), puedeConfirmar: (mid) => (s.bloqueados.get(mid) ?? Infinity) < s.turnosUsuario };
+
+    try {
+      let terminado = false;
+      for (let it = 0; it < maxIter && !terminado; it++) {
+        if (gastados(s) >= maxTokens) { reply = `Se alcanzó el tope de tokens de la sesión (${maxTokens}). Lo avanzado quedó registrado; inicia una sesión nueva para continuar.`; terminado = true; break; }
+        const r = await llm.enviar(s.mensajes, paraLLM(tools));
+        s.usage.calls++; s.usage.input += r.uso.input; s.usage.output += r.uso.output; s.usage.cache_read += r.uso.cache_read; s.usage.cache_write += r.uso.cache_write;
+        const bloques: Bloque[] = [...(r.texto ? [{ type: "text" as const, text: r.texto }] : []), ...r.llamadas.map((l) => ({ type: "tool_use" as const, id: l.id, name: l.name, input: l.input }))];
+        s.mensajes.push({ role: "assistant", content: bloques });
+        if (r.texto) emitir({ type: "text", text: r.texto });
+        if (!r.llamadas.length) { reply = r.texto; terminado = true; break; }
+        const resultados: Bloque[] = [];
+        for (const l of r.llamadas) {
+          const salida = await ejecutar(tools, l.name, l.input, ctx);
+          let ok = false; let error = "";
+          try { const p = JSON.parse(salida) as { ok: boolean; error?: string }; ok = p.ok; error = p.error ?? ""; } catch { /* salida no JSON */ }
+          const mid = (l.input as { mensaje_id?: unknown } | null)?.mensaje_id;
+          if (l.name === "contratos_registrar" && !ok && error.startsWith("requiere revisión") && typeof mid === "string") { s.bloqueados.set(mid, s.turnosUsuario); needsConfirmation = true; }
+          const ev: EventoHerramienta = { type: "tool", id: l.id, name: l.name, input: l.input, ok, output: ok ? resumir(salida) : error || resumir(salida) };
+          toolCalls.push(ev); emitir(ev);
+          resultados.push({ type: "tool_result", tool_use_id: l.id, content: salida, is_error: !ok });
+        }
+        s.mensajes.push({ role: "user", content: resultados });
+      }
+      if (!terminado) {
+        const hechas = toolCalls.map((t) => `${t.name}${(t.input as { mensaje_id?: string })?.mensaje_id ? `(${(t.input as { mensaje_id: string }).mensaje_id})` : ""} ${t.ok ? "✓" : "✗"}`).join(", ");
+        reply = `Alcancé el tope de ${maxIter} iteraciones en este turno. Lo hecho: ${hechas || "nada"}. Escribe "continúa" para seguir con lo que falta.`;
+        emitir({ type: "text", text: reply });
+      } else if (reply === "" || (needsConfirmation && !toolCalls.length)) {
+        /* respuesta vacía del modelo: se deja tal cual */
+      }
+    } catch (e) {
+      s.mensajes.length = base; // la sesión sigue viva: se descarta solo el turno fallido
+      reply = e instanceof ErrorLLM ? e.message : "Ocurrió un error inesperado al procesar tu mensaje.";
+      emitir({ type: "error", message: reply });
+    }
+    return resultado();
   }
-  return out;
+
+  return {
+    llm, chat, maxTokens, maxIter,
+    existe: (id: string) => sesiones.has(id),
+    historial: (id: string) => (sesiones.has(id) ? { eventos: sesiones.get(id)!.eventos, usage: { ...sesiones.get(id)!.usage } } : null),
+    estado(id: string): { maestro: Fila[]; procesados: Procesados; alertas_md: string | null } {
+      const c = ctxDe(id); return { maestro: maestroSinCrear(c), procesados: sesiones.has(id) ? leerProcesados(c) : {}, alertas_md: sesiones.has(id) ? leerTextoOut(c, "alertas.md") : null };
+    },
+    reset(id: string) { sesiones.delete(id); borrarSalida(ctxDe(id)); },
+  };
 }
+export type Agente = ReturnType<typeof crearAgente>;

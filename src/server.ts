@@ -1,21 +1,20 @@
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import express from "express";
-import { chat, confirm, resetSession, storeOf, usageOf } from "./agent.js";
+import type { Agente } from "./agent.js";
 import { tools } from "./tools/contratos.js";
 
 const SESSION_ID = /^[A-Za-z0-9-]{8,64}$/;
 const MAX_MESSAGE = 8000;
-
 const sha = (s: string) => crypto.createHash("sha256").update(s).digest();
 
 /**
  * App HTTP. Seguridad:
- *  - APP_PASSWORD (opcional): si existe, todo exige HTTP Basic (usuario libre, esa contraseña). /api/health queda abierto.
- *  - Límite de peticiones por IP (RATE_LIMIT_PER_MIN) para proteger el costo de la API key.
- *  - Cabeceras de seguridad, ids de sesión validados, mensajes acotados, sin trazas en errores.
+ *  - APP_PASSWORD (opcional): si existe, todo exige HTTP Basic (usuario libre). /api/health queda abierto.
+ *  - Límite de peticiones por IP (RATE_LIMIT_PER_MIN) y tope de tokens por sesión (en el agente).
+ *  - Cabeceras de seguridad, ids de sesión validados, mensajes acotados, errores sin detalles internos.
  */
-export function createApp() {
+export function createApp({ agente }: { agente: Agente }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -29,9 +28,8 @@ export function createApp() {
     next();
   });
 
-  app.get("/api/health", (_req, res) => res.json({ ok: true, llm: Boolean(process.env.ANTHROPIC_API_KEY) }));
+  app.get("/api/health", (_req, res) => res.json({ ok: true, provider: agente.llm.proveedor, model: agente.llm.modelo }));
 
-  // Control de acceso
   app.use((req, res, next) => {
     const pass = process.env.APP_PASSWORD;
     if (!pass) return next();
@@ -42,34 +40,29 @@ export function createApp() {
     res.status(401).json({ error: "No autorizado" });
   });
 
-  // Límite de uso por IP (ventana de 1 minuto)
   const hits = new Map<string, { n: number; reset: number }>();
   app.use("/api", (req, res, next) => {
     const max = Number(process.env.RATE_LIMIT_PER_MIN ?? 60);
-    const now = Date.now(), ip = req.ip ?? "?";
-    const h = hits.get(ip);
+    const now = Date.now(), ip = req.ip ?? "?"; const h = hits.get(ip);
     if (!h || now > h.reset) hits.set(ip, { n: 1, reset: now + 60_000 });
-    else if (++h.n > max) return res.status(429).json({ events: [{ type: "error", message: "Demasiadas solicitudes. Espera un minuto." }] });
+    else if (++h.n > max) return res.status(429).json({ reply: "Demasiadas solicitudes. Espera un minuto.", events: [{ type: "error", message: "Demasiadas solicitudes. Espera un minuto." }] });
     next();
   });
 
   app.use(express.static(fileURLToPath(new URL("../public", import.meta.url))));
+  const bad = (res: express.Response, message: string) => res.status(400).json({ reply: message, events: [{ type: "error", message }] });
 
-  const bad = (res: express.Response, message: string) => res.status(400).json({ events: [{ type: "error", message }] });
-  const needKey = (res: express.Response) => {
-    if (process.env.ANTHROPIC_API_KEY) return false;
-    res.status(500).json({ events: [{ type: "error", message: "Falta ANTHROPIC_API_KEY en el servidor." }] });
-    return true;
-  };
+  app.get("/api/tools", (_req, res) => res.json(tools.map((t) => ({ name: t.name, description: t.description }))));
 
-  app.get("/api/tools", (_req, res) =>
-    res.json(tools.map((t) => ({ name: t.name, requiresConfirmation: Boolean(t.requiresConfirmation), description: t.description }))));
-
-  // Estado del maestro simulado DE ESA SESIÓN (para revisar el antes/después de cada operación)
   app.get("/api/state", (req, res) => {
-    const sid = String(req.query.sessionId ?? "");
-    if (!SESSION_ID.test(sid)) return bad(res, "sessionId inválido");
-    res.json(storeOf(sid));
+    const sid = String(req.query.sessionId ?? ""); if (!SESSION_ID.test(sid)) return bad(res, "sessionId inválido");
+    res.json(agente.estado(sid));
+  });
+
+  app.get("/api/sessions/:id", (req, res) => {
+    const id = String(req.params.id); if (!SESSION_ID.test(id)) return bad(res, "sessionId inválido");
+    const h = agente.historial(id); if (!h) return res.status(404).json({ error: "Sesión no encontrada" });
+    res.json(h);
   });
 
   app.post("/api/chat", async (req, res) => {
@@ -77,31 +70,15 @@ export function createApp() {
     if (typeof sessionId !== "string" || !SESSION_ID.test(sessionId)) return bad(res, "sessionId inválido");
     if (typeof message !== "string" || !message.trim()) return bad(res, "message es obligatorio");
     if (message.length > MAX_MESSAGE) return bad(res, `El mensaje supera ${MAX_MESSAGE} caracteres`);
-    if (needKey(res)) return;
-    res.json({ events: await chat(sessionId, message), usage: usageOf(sessionId) });
+    const r = await agente.chat(sessionId, message);
+    res.status(r.status).json({ reply: r.reply, toolCalls: r.toolCalls, needsConfirmation: r.needsConfirmation, events: r.events, usage: r.usage });
   });
 
-  app.post("/api/confirm", async (req, res) => {
-    const { sessionId, approve, note } = req.body ?? {};
-    if (typeof sessionId !== "string" || !SESSION_ID.test(sessionId)) return bad(res, "sessionId inválido");
-    if (typeof approve !== "boolean") return bad(res, "approve debe ser booleano");
-    if (needKey(res)) return;
-    res.json({ events: await confirm(sessionId, approve, typeof note === "string" ? note.slice(0, 500) : undefined), usage: usageOf(sessionId) });
-  });
-
-  // Reinicia la sesión (conversación + maestro de ESA sesión)
   app.post("/api/reset", (req, res) => {
-    const { sessionId } = req.body ?? {};
-    if (typeof sessionId !== "string" || !SESSION_ID.test(sessionId)) return bad(res, "sessionId inválido");
-    resetSession(sessionId);
-    res.json({ ok: true });
+    const { sessionId } = req.body ?? {}; if (typeof sessionId !== "string" || !SESSION_ID.test(sessionId)) return bad(res, "sessionId inválido");
+    agente.reset(sessionId); res.json({ ok: true });
   });
 
-  // Errores inesperados: sin detalles internos
-  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error(err.message);
-    res.status(400).json({ events: [{ type: "error", message: "Solicitud no válida" }] });
-  });
-
+  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => { console.error(err.message); bad(res, "Solicitud no válida"); });
   return app;
 }

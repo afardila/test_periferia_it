@@ -1,87 +1,83 @@
-/**
- * Pruebas del bucle del agente SIN API real: un servidor falso imita /v1/messages con respuestas guionadas.
- * AC-17..AC-20: confirmación humana, rechazo, aislamiento por sesión y tope de iteraciones.
- */
-import http from "node:http";
-import { test, after } from "node:test";
+/** Ciclo del agente con un proveedor LLM falso (sin red). AC-37..42 y AC-40 (guardia de confirmación). */
+import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { crearAgente } from "../src/agent.js";
+import { ErrorLLM, type LLM, type Mensaje, type RespuestaLLM } from "../src/llm/adapter.js";
 
-type Bloque = Record<string, unknown>;
-let guion: Bloque[][] = [];
-let n = 0;
-const fake = http.createServer((req, res) => {
-  req.resume().on("end", () => {
-    const content = guion[Math.min(n++, guion.length - 1)];
-    res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({
-      id: "msg_" + n, type: "message", role: "assistant", model: "fake", content,
-      stop_reason: content.some((b) => b.type === "tool_use") ? "tool_use" : "end_turn", stop_sequence: null,
-      usage: { input_tokens: 100, output_tokens: 20 },
-    }));
-  });
+const ROOT = path.resolve(import.meta.dirname, "..");
+const uso = { input: 100, output: 50, cache_read: 0, cache_write: 0 };
+const llamada = (name: string, input: unknown, id = `tu_${Math.random().toString(36).slice(2, 8)}`): RespuestaLLM => ({ texto: "", llamadas: [{ id, name, input }], uso });
+const texto = (t: string): RespuestaLLM => ({ texto: t, llamadas: [], uso });
+const falso = (f: (m: Mensaje[], i: number) => RespuestaLLM | Error): LLM => {
+  let i = 0;
+  return { proveedor: "falso", modelo: "falso-1", async enviar(m) { const r = f(m, i++); if (r instanceof Error) throw r; return r; } };
+};
+let n = 0; const sid = () => `agt-${process.pid}-${++n}`;
+const nuevo = (llm: LLM, o: { maxIter?: number; maxTokens?: number } = {}) => crearAgente({ llm, directory: ROOT, ...o });
+
+test("AC-37 [+] el ciclo ejecuta herramientas y termina con texto", async () => {
+  const a = nuevo(falso((_m, i) => (i === 0 ? llamada("contratos_leer_buzon", {}) : texto("Hay 6 mensajes."))));
+  const r = await a.chat(sid(), "Procesa el buzón");
+  assert.equal(r.reply, "Hay 6 mensajes."); assert.equal(r.toolCalls.length, 1); assert.equal(r.toolCalls[0].name, "contratos_leer_buzon"); assert.equal(r.toolCalls[0].ok, true);
 });
-await new Promise<void>((r) => fake.listen(0, r));
-process.env.ANTHROPIC_API_KEY = "test";
-process.env.ANTHROPIC_BASE_URL = `http://localhost:${(fake.address() as { port: number }).port}`;
-after(() => { fake.close(); });
-
-const { chat, confirm, storeOf, usageOf } = await import("../src/agent.js");
-
-const registro = (numero: string) => ({
-  type: "tool_use", id: "t2", name: "registrar_contrato",
-  input: { numero, cliente: "Test S.A.", objeto: "X", valor: 10, fecha_inicio: "2026-06-01", fecha_fin: "2027-06-01", id_mensaje: "m", confianza: { numero: 0.9 } },
+test("AC-37 [-] al llegar al tope de iteraciones responde con lo hecho y lo que falta", async () => {
+  const a = nuevo(falso(() => llamada("contratos_leer_buzon", {})), { maxIter: 3 });
+  const r = await a.chat(sid(), "x");
+  assert.equal(r.toolCalls.length, 3); assert.match(r.reply, /tope de 3 iteraciones/i); assert.match(r.reply, /contin/i);
 });
-const flujo = (numero: string) => [
-  [{ type: "tool_use", id: "t1", name: "buscar_contrato", input: { numero } }],
-  [{ type: "text", text: "No existe; lo registro." }, registro(numero)],
-  [{ type: "text", text: "Contrato registrado." }],
-];
-const existe = (sid: string, numero: string) => storeOf(sid).maestro.some((r) => r.numero === numero);
-
-test("AC-17 [+] consulta sin permiso, pausa antes de escribir, escribe solo tras aprobar", async () => {
-  guion = flujo("CT-2026-050"); n = 0;
-  const e1 = await chat("sesion-aaaa-1", "registra CT-2026-050");
-  assert.ok(e1.some((e) => e.type === "tool_result" && e.name === "buscar_contrato"));
-  assert.ok(e1.some((e) => e.type === "confirmation_required"));
-  assert.equal(existe("sesion-aaaa-1", "CT-2026-050"), false, "no escribe antes de aprobar");
-  assert.equal((await chat("sesion-aaaa-1", "otra cosa"))[0].type, "error", "bloquea mensajes con confirmación pendiente");
-
-  const e2 = await confirm("sesion-aaaa-1", true);
-  assert.equal(existe("sesion-aaaa-1", "CT-2026-050"), true);
-  assert.ok(e2.some((e) => e.type === "text" && e.text.includes("registrado")));
-  assert.equal(usageOf("sesion-aaaa-1").calls, 3);
+test("AC-38 [+] el ciclo solo depende de la interfaz LLM (sin proveedor real)", async () => {
+  const visto: string[] = [];
+  const a = nuevo(falso((m) => { visto.push(m[0].role); return texto("ok"); }));
+  await a.chat(sid(), "hola"); assert.equal(visto[0], "system");
+  assert.equal(a.llm.proveedor, "falso");
 });
-
-test("AC-18 [-] si el humano rechaza, no se escribe y el rechazo vuelve al modelo", async () => {
-  guion = flujo("CT-2026-051"); n = 0;
-  await chat("sesion-bbbb-2", "registra");
-  const e = await confirm("sesion-bbbb-2", false, "no corresponde");
-  assert.equal(existe("sesion-bbbb-2", "CT-2026-051"), false);
-  assert.ok(e.some((x) => x.type === "tool_result" && !x.ok));
+test("AC-39 [+] si registrar pide revisión, la respuesta marca needsConfirmation", async () => {
+  const a = nuevo(falso((_m, i) => (i === 0 ? llamada("contratos_registrar", { mensaje_id: "msg-006" }) : texto("msg-006 requiere confirmar valor y fecha_fin. ¿Confirmas?"))));
+  const r = await a.chat(sid(), "procesa msg-006");
+  assert.equal(r.needsConfirmation, true); assert.equal(r.toolCalls[0].ok, false); assert.match(String(r.toolCalls[0].output), /requiere revisión/);
 });
-
-test("AC-19 [!] aislamiento: aprobar en una sesión no cambia el maestro de otra", async () => {
-  guion = flujo("CT-2026-052"); n = 0;
-  await chat("sesion-cccc-3", "registra"); await confirm("sesion-cccc-3", true);
-  assert.equal(existe("sesion-cccc-3", "CT-2026-052"), true);
-  assert.equal(existe("sesion-bbbb-2", "CT-2026-052"), false);
-  assert.equal(existe("sesion-nueva-9", "CT-2026-052"), false);
+test("AC-40 [-] el modelo no puede autoconfirmar: confirmado=true se rechaza hasta que el usuario responda", async () => {
+  const id = sid();
+  const a = nuevo(falso((m, i) => {
+    if (i === 0) return llamada("contratos_registrar", { mensaje_id: "msg-006" });
+    if (i === 1) return llamada("contratos_registrar", { mensaje_id: "msg-006", confirmado: true }); // intento de autoconfirmación en el mismo turno
+    if (i === 2) return texto("¿Confirmas?");
+    return i === 3 ? llamada("contratos_registrar", { mensaje_id: "msg-006", confirmado: true }) : texto("Registrado.");
+  }));
+  const r1 = await a.chat(id, "procesa msg-006");
+  assert.equal(r1.toolCalls[1].ok, false); assert.match(String(r1.toolCalls[1].output), /no permitido/);
+  assert.ok(!fs.existsSync(path.join(ROOT, "out", id, "sharepoint", "historial.jsonl")));
+  const r2 = await a.chat(id, "confirmo valor 0 y fecha fin 2027-08-31"); // ahora el usuario respondió
+  assert.equal(r2.toolCalls[0].ok, true, JSON.stringify(r2.toolCalls[0]));
+  assert.ok(fs.existsSync(path.join(ROOT, "out", id, "sharepoint", "historial.jsonl")));
 });
-
-test("AC-20 [!] el bucle se corta al llegar al tope de iteraciones", async () => {
-  guion = [[{ type: "tool_use", id: "tx", name: "listar_buzon", input: {} }]]; n = 0; // pide la misma tool para siempre
-  const e = await chat("sesion-dddd-4", "bucle");
-  assert.ok(e.some((x) => x.type === "error" && /máximo/.test(x.message)));
-  assert.ok(n <= 13);
+test("AC-41 [+] cada llamada queda en historial de sesión y en out/<sesión>/log.jsonl", async () => {
+  const id = sid();
+  const a = nuevo(falso((_m, i) => (i === 0 ? llamada("contratos_leer_buzon", {}) : texto("listo"))));
+  await a.chat(id, "hola");
+  const h = a.historial(id)!; assert.ok(h.eventos.some((e) => e.type === "tool")); assert.ok(h.eventos.some((e) => e.type === "user"));
+  const log = fs.readFileSync(path.join(ROOT, "out", id, "log.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual(Object.keys(log[0]).sort(), ["herramienta", "mensaje_id", "ok", "resumen", "ts"]);
 });
-
-test("AC-21 [-] entrada inválida del modelo vuelve como error y no escribe", async () => {
-  guion = [
-    [{ type: "tool_use", id: "t1", name: "buscar_contrato", input: {} }],
-    [{ type: "text", text: "Corrijo." }],
-  ]; n = 0;
-  const e = await chat("sesion-eeee-5", "busca");
-  const r = e.find((x) => x.type === "tool_result");
-  assert.ok(r && r.type === "tool_result" && !r.ok);
-  assert.ok(e.some((x) => x.type === "text"));
+test("AC-42 [!] un fallo del proveedor se informa en claro y la sesión sigue viva", async () => {
+  const id = sid();
+  const a = nuevo(falso((_m, i) => (i === 0 ? new ErrorLLM("El modelo tardó demasiado en responder (timeout).") : texto("ya estoy de vuelta"))));
+  const r1 = await a.chat(id, "hola"); assert.match(r1.reply, /timeout/); assert.equal(r1.status, 200);
+  const r2 = await a.chat(id, "otra vez"); assert.equal(r2.reply, "ya estoy de vuelta");
+});
+test("AC-43 [-] el tope de tokens por sesión corta antes de llamar al modelo", async () => {
+  let llamadas = 0; const id = sid();
+  const a = nuevo(falso(() => { llamadas++; return texto("ok"); }), { maxTokens: 120 });
+  await a.chat(id, "uno"); // gasta 150 tokens (100+50) → supera 120
+  const r = await a.chat(id, "dos");
+  assert.equal(r.status, 429); assert.match(r.reply, /tope de tokens/i); assert.equal(llamadas, 1);
+});
+test("AC-46 [+] las sesiones están aisladas (estado de A no aparece en B)", async () => {
+  const A = sid(), B = sid();
+  const a = nuevo(falso((_m, i) => (i % 2 === 0 ? llamada("contratos_registrar", { mensaje_id: "msg-001" }) : texto("ok"))));
+  await a.chat(A, "procesa msg-001");
+  assert.equal(a.estado(A).maestro.some((f) => f.id_contrato === "CT-2026-015"), true);
+  assert.equal(a.estado(B).maestro.some((f) => f.id_contrato === "CT-2026-015"), false);
 });

@@ -1,5 +1,0 @@
-[DATOS FICTICIOS PARA PRUEBA]
-CONTRATO No. CT-2026-001
-Cliente: Ejemplo Andina S.A. NIT 900111222-1
-Objeto: Soporte de plataforma
-Valor: $120.000.000 COP. Vigencia: 2026-01-15 a 2026-06-20.

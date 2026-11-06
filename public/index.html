@@ -56,48 +56,42 @@ function toolBox(name, input) {
   return d;
 }
 
-let lastTool = {};
-function render(events) {
-  for (const ev of events) {
+function toolBox(ev) {
+  const d = el('details', 'tool' + (ev.ok ? '' : ' fail'));
+  d.appendChild(el('summary', null, (ev.ok ? '✅ ' : '⚠️ ') + ev.name + (ev.input && ev.input.mensaje_id ? ' · ' + ev.input.mensaje_id : '')));
+  d.appendChild(el('pre', null, 'argumentos: ' + pretty(ev.input)));
+  d.appendChild(el('pre', null, (ev.ok ? 'resultado: ' : 'error: ') + pretty(ev.output)));
+  return d;
+}
+function render(j) {
+  for (const ev of (j.events || [])) {
     if (ev.type === 'text') add(el('div', 'msg bot', ev.text));
     else if (ev.type === 'error') add(el('div', 'msg err', ev.message));
-    else if (ev.type === 'tool_call') lastTool[ev.id] = add(toolBox(ev.name, ev.input));
-    else if (ev.type === 'tool_result') {
-      const box = lastTool[ev.id]; if (!box) continue;
-      if (!ev.ok) box.classList.add('fail');
-      box.querySelector('summary').textContent = (ev.ok ? '✅ ' : '⚠️ ') + ev.name;
-      box.appendChild(el('pre', null, 'resultado: ' + pretty(ev.output)));
-      const card = document.querySelector('.confirm[data-id="' + ev.id + '"]'); if (card) card.remove();
-    }
-    else if (ev.type === 'confirmation_required') {
-      const c = el('div', 'confirm'); c.dataset.id = ev.id;
-      const t = el('div'); t.appendChild(el('b', null, '⏸ Requiere tu confirmación: ')); t.appendChild(document.createTextNode(ev.name));
-      c.appendChild(t); c.appendChild(el('pre', null, pretty(ev.input)));
-      const row = el('div', 'row');
-      const ok = el('button', 'primary', 'Aprobar'), no = el('button', 'danger', 'Rechazar');
-      ok.onclick = () => decide(true); no.onclick = () => decide(false);
-      row.append(ok, no); c.appendChild(row); add(c);
-    }
+    else if (ev.type === 'tool') add(toolBox(ev));
+  }
+  if (j.needsConfirmation) {
+    const c = el('div', 'confirm');
+    const t = el('div'); t.appendChild(el('b', null, '⏸ El agente espera tu confirmación. ')); t.appendChild(document.createTextNode('Responde en el chat confirmando o corrigiendo los campos en revisión; solo entonces registrará.'));
+    c.appendChild(t); add(c); q.focus();
   }
 }
 
 async function call(url, body) {
   if (busy) return; busy = true;
-  const wait = add(el('div', 'msg bot', '…'));
+  const wait = add(el('div', 'msg bot', 'Pensando…'));
   try {
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: sid(), ...body }) });
-    const j = await r.json(); wait.remove(); render(j.events || []);
+    const j = await r.json(); wait.remove(); render(j);
     if (j.usage) document.getElementById('usage').textContent = `Llamadas al modelo: ${j.usage.calls} · tokens entrada: ${j.usage.input} · salida: ${j.usage.output} · caché leída: ${j.usage.cache_read} · caché escrita: ${j.usage.cache_write}`;
   } catch (e) { wait.remove(); add(el('div', 'msg err', 'Error de red: ' + e.message)); }
   busy = false;
 }
-const decide = (approve) => { document.querySelectorAll('.confirm button').forEach(b => b.disabled = true); return call('/api/confirm', { approve }); };
 
 document.getElementById('f').onsubmit = (e) => { e.preventDefault(); const m = q.value.trim(); if (!m) return; q.value = ''; add(el('div', 'msg user', m)); call('/api/chat', { message: m }); };
 document.getElementById('new').onclick = async () => { await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: sid() }) }); localStorage.removeItem('sid'); log.textContent = ''; document.getElementById('usage').textContent = ''; };
-document.getElementById('state').onclick = async () => { const s = await (await fetch('/api/state?sessionId=' + sid())).json(); add(el('details', 'tool')).append(el('summary', null, '📋 Maestro (' + s.maestro.length + ' contratos)'), el('pre', null, pretty(s))); };
-for (const p of ['Procesa únicamente el mensaje msg-001','Procesa todo el buzón, un mensaje a la vez', 'Reporte de vencimientos a 90 días', 'Muéstrame el contrato CT-2026-001'])
-  { const b = el('button', null, p); b.onclick = () => { add(el('div', 'msg user', p)); call('/api/chat', { message: p }); }; document.getElementById('chips').appendChild(b); }
+document.getElementById('state').onclick = async () => { const s = await (await fetch('/api/state?sessionId=' + sid())).json(); const d = add(el('details', 'tool')); d.append(el('summary', null, '📋 Maestro (' + s.maestro.length + ' contratos) · ' + Object.keys(s.procesados || {}).length + ' mensajes procesados'), el('pre', null, pretty(s))); };
+for (const p of ['Procesa el buzón de contratos con fecha de hoy 2026-09-03. Registra lo que esté limpio, muéstrame lo que requiere revisión campo por campo y termina con el reporte de alertas. No registres nada dudoso sin preguntarme.', 'Procesa únicamente el mensaje msg-006', 'Confirmo el valor 0 y la fecha fin 2027-08-31'])
+  { const b = el('button', null, p.length > 45 ? p.slice(0, 42) + '…' : p); b.title = p; b.onclick = () => { add(el('div', 'msg user', p)); call('/api/chat', { message: p }); }; document.getElementById('chips').appendChild(b); }
 </script>
 </body>
 </html>
