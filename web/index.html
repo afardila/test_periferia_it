@@ -14,6 +14,7 @@
   button.danger { color:var(--bad); border-color:var(--bad) }
   #log { flex:1; overflow:auto; padding:14px; display:flex; flex-direction:column; gap:10px }
   .msg { max-width:86%; padding:9px 12px; border-radius:12px; white-space:pre-wrap; word-wrap:break-word }
+  .msg.bot { white-space:normal } .msg table { border-collapse:collapse; margin:6px 0; font-size:13px } .msg th,.msg td { border:1px solid var(--line); padding:3px 7px; text-align:left; vertical-align:top } .msg th { background:#f3f4f6 } .msg code { background:#f3f4f6; padding:0 3px; border-radius:4px; font-size:13px } .msg .h { font-weight:700; margin-top:6px } .msg .sp { height:6px }
   .user { align-self:flex-end; background:var(--brand); color:#fff }
   .bot { align-self:flex-start; background:var(--card); border:1px solid var(--line) }
   .err { align-self:flex-start; background:#fef2f2; border:1px solid #fecaca; color:var(--bad) }
@@ -56,6 +57,27 @@ function toolBox(name, input) {
   return d;
 }
 
+
+/** Markdown mínimo y SEGURO: primero se escapa todo el HTML; solo se generan etiquetas propias (tablas, negrita, código, listas). */
+function md(texto) {
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const inl = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  const lineas = texto.split('\n'); const out = [];
+  for (let i = 0; i < lineas.length; i++) {
+    const l = lineas[i];
+    if (/^\s*\|.*\|\s*$/.test(l)) {
+      const filas = []; while (i < lineas.length && /^\s*\|.*\|\s*$/.test(lineas[i])) filas.push(lineas[i++]); i--;
+      const celdas = (f) => f.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+      const cuerpo = filas.filter((f) => !/^\s*\|[\s:|-]+\|\s*$/.test(f));
+      out.push('<table>' + cuerpo.map((f, k) => '<tr>' + celdas(f).map((c) => (k === 0 ? '<th>' : '<td>') + inl(c) + (k === 0 ? '</th>' : '</td>')).join('') + '</tr>').join('') + '</table>');
+    } else if (/^#{1,4}\s/.test(l)) out.push('<div class="h">' + inl(l.replace(/^#+\s/, '')) + '</div>');
+    else if (/^\s*[-*]\s/.test(l)) out.push('<div class="li" style="padding-left:' + (l.match(/^\s*/)[0].length * 6 + 10) + 'px">• ' + inl(l.replace(/^\s*[-*]\s/, '')) + '</div>');
+    else out.push(l.trim() ? '<div>' + inl(l) + '</div>' : '<div class="sp"></div>');
+  }
+  return out.join('');
+}
+function botMsg(texto) { const d = el('div', 'msg bot'); d.innerHTML = md(texto); return d; }
+
 function toolBox(ev) {
   const d = el('details', 'tool' + (ev.ok ? '' : ' fail'));
   d.appendChild(el('summary', null, (ev.ok ? '✅ ' : '⚠️ ') + ev.name + (ev.input && ev.input.mensaje_id ? ' · ' + ev.input.mensaje_id : '')));
@@ -65,7 +87,8 @@ function toolBox(ev) {
 }
 function render(j) {
   for (const ev of (j.events || [])) {
-    if (ev.type === 'text') add(el('div', 'msg bot', ev.text));
+    if (ev.type === 'text') add(botMsg(ev.text));
+    else if (ev.type === 'user') add(el('div', 'msg user', ev.text));
     else if (ev.type === 'error') add(el('div', 'msg err', ev.message));
     else if (ev.type === 'tool') add(toolBox(ev));
   }
@@ -92,6 +115,8 @@ document.getElementById('new').onclick = async () => { await fetch('/api/reset',
 document.getElementById('state').onclick = async () => { const s = await (await fetch('/api/state?sessionId=' + sid())).json(); const d = add(el('details', 'tool')); d.append(el('summary', null, '📋 Maestro (' + s.maestro.length + ' contratos) · ' + Object.keys(s.procesados || {}).length + ' mensajes procesados'), el('pre', null, pretty(s))); };
 for (const p of ['Procesa el buzón de contratos con fecha de hoy 2026-09-03. Registra lo que esté limpio, muéstrame lo que requiere revisión campo por campo y termina con el reporte de alertas. No registres nada dudoso sin preguntarme.', 'Procesa únicamente el mensaje msg-006', 'Confirmo el valor 0 y la fecha fin 2027-08-31'])
   { const b = el('button', null, p.length > 45 ? p.slice(0, 42) + '…' : p); b.title = p; b.onclick = () => { add(el('div', 'msg user', p)); call('/api/chat', { message: p }); }; document.getElementById('chips').appendChild(b); }
+// Al recargar la página se recupera el historial de la sesión (GET /api/sessions/:id)
+(async () => { try { const r = await fetch('/api/sessions/' + sid()); if (!r.ok) return; const h = await r.json(); render({ events: h.eventos || [] }); if (h.usage) document.getElementById('usage').textContent = `Llamadas al modelo: ${h.usage.calls} · tokens entrada: ${h.usage.input} · salida: ${h.usage.output} · caché leída: ${h.usage.cache_read} · caché escrita: ${h.usage.cache_write}`; } catch {} })();
 </script>
 </body>
 </html>

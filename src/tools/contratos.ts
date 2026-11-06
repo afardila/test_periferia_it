@@ -149,7 +149,7 @@ export const leer_buzon = conLog("leer_buzon", defineTool({
 }));
 
 export const extraer = conLog("extraer", defineTool({
-  description: "Extrae del contrato adjunto de un mensaje los datos estructurados con confianza [0,1] por campo; lo ausente es null con confianza 0. Falla si el mensaje no trae contrato.",
+  description: "Extrae del contrato adjunto de un mensaje los datos estructurados con confianza [0,1] por campo (lo ausente es null con confianza 0) y falla si el mensaje no trae contrato.",
   args: { mensaje_id: idMensaje },
   async execute({ mensaje_id }, ctx) {
     const r = await extraerDe(ctx, mensaje_id);
@@ -160,7 +160,7 @@ export const extraer = conLog("extraer", defineTool({
 }));
 
 export const validar = conLog("validar", defineTool({
-  description: "Clasifica el contrato extraído como nuevo, actualizacion, duplicado o rechazado (RN1–RN4) y lista los campos que requieren revisión humana (confianza < 0.8, ausentes o en conflicto con el maestro). Sin 'contrato' evalúa el mensaje (útil para rechazados).",
+  description: "Clasifica el contrato extraído (o el mensaje, si se omite contrato) como nuevo, actualizacion, duplicado o rechazado y lista los campos que requieren revisión humana por confianza < 0.8, ausencia o conflicto con el maestro.",
   args: { mensaje_id: idMensaje, contrato: ContratoSchema.optional().describe("Contrato tal como lo devolvió contratos_extraer (con las correcciones del humano si las hay)") },
   async execute({ mensaje_id, contrato }, ctx) {
     const r = contrato ? { contrato, a: await analizar(ctx, mensaje_id) } : await extraerDe(ctx, mensaje_id);
@@ -171,7 +171,7 @@ export const validar = conLog("validar", defineTool({
 }));
 
 export const registrar = conLog("registrar", defineTool({
-  description: "Registra en el maestro (nuevo/actualización), archiva el documento y deja historial. Solo escribe si no hay campos en revisión o si confirmado=true tras la respuesta explícita del usuario. Duplicados y rechazados no escriben.",
+  description: "Registra o actualiza el contrato en el maestro, lo archiva y deja historial, solo si no hay campos en revisión o si confirmado=true tras la respuesta explícita del usuario (duplicados y rechazados solo se marcan procesados).",
   args: {
     mensaje_id: idMensaje,
     contrato: ContratoSchema.optional().describe("Contrato validado; si se omite se extrae del mensaje"),
@@ -235,7 +235,7 @@ export const registrar = conLog("registrar", defineTool({
 }));
 
 export const leer_pdf = conLog("leer_pdf", defineTool({
-  description: "Lee el texto de un PDF con capa de texto del buzón (ruta relativa a fixtures/, p. ej. buzon/msg-001/contrato.pdf). Un PDF escaneado sin texto devuelve error: requiere OCR.",
+  description: "Lee el texto de un PDF del buzón (ruta relativa a fixtures/, p. ej. buzon/msg-001/contrato.pdf) y devuelve error si el PDF es escaneado y requiere OCR.",
   args: { ruta: z.string().min(1).max(200).describe("Ruta relativa a fixtures/reto-02, p. ej. buzon/msg-001/contrato.pdf") },
   async execute({ ruta }, ctx) {
     if (!/\.pdf$/i.test(ruta)) return fail("La ruta debe apuntar a un archivo .pdf");
