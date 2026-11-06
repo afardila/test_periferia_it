@@ -66,7 +66,7 @@ Esquema `Contrato`: campos del maestro (§7.2) + `valor_indeterminado` + `confia
 - AC-34 (!) `hoy` inválido (`2026-13-40`) → `ok:false` legible. Mismo `hoy` y mismo maestro → mismo contenido (determinista).
 ### HU-6 Errores y lote
 - AC-35 (!) Un mensaje que falla no aborta el lote: `demo.ts` procesa los 6 aun si uno devuelve `ok:false`.
-- AC-36 (!) Moneda desconocida o fecha inválida en el texto → `ok:false` o campo `null` con confianza 0, nunca valor inventado.
+- AC-36 (!) Moneda desconocida (p. ej. EUR) o fecha inexistente (31 de febrero) en el documento → `ok:false` con error legible (decisión del usuario, literal de HU-6); el lote continúa. Un campo simplemente ausente sigue siendo `null` con confianza 0.
 ### PDF y módulo reutilizable (alcance ampliado por el usuario)
 - AC-49 (+/−) `leer_pdf{ruta}` devuelve `{texto, paginas}` de un PDF con texto; rechaza rutas fuera de `fixtures/`, no-PDF e inexistentes; un PDF sin texto responde que requiere OCR.
 - AC-50 (+) PDF coherente con el TXT → sin alertas de diferencia.
@@ -107,6 +107,7 @@ Esquema `Contrato`: campos del maestro (§7.2) + `valor_indeterminado` + `confia
 - S6 Confirmación humana: **todo campo ausente o con confianza < 0.8 exige confirmación** (no se asume ni inventa, incluido `comercial`); lo limpio se registra sin preguntar.
 - S7 Salidas en `out/<sessionId>/…` (una carpeta por sesión, aislamiento entre casos) en lugar de un único `out/`; ruta de archivo `Contratos/<año>/<cliente-slug-sin-sufijo-legal>/<id>.<ext>` (convención del maestro existente).
 - S8 Un otrosí hereda del maestro los campos que no trae (no se consideran ausentes).
+- S10 Decisiones del usuario (2026-11-06): `comercial` desconocido sigue pidiendo confirmación; fecha/moneda inválida → `ok:false`; clave de acceso entregada por otro canal (no en README); OCR de escaneados queda declarado como mejora.
 - S9 Bonus `modulo/` solo si sobra tiempo.
 - Columnas añadidas al maestro: `estado_contrato`, `alertas`.
 

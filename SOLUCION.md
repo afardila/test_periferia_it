@@ -66,6 +66,8 @@ Anthropic **Claude Sonnet 5.5** (`MODEL`, cambiable): buen uso de herramientas y
 - msg-006: `valor = 0` por demanda; sin día de firma se toma la fecha del correo como inicio (confianza 0,5) y `fecha_fin` = inicio + 12 meses; moneda COP inferida del umbral de garantías; el marco no exige póliza (la exigen las órdenes de servicio). Todo queda en revisión y anotado en `alertas`.
 - Todo campo ausente o con confianza < 0.8 pide confirmación, incluido un remitente desconocido (comercial).
 - Un otrosí hereda del maestro los campos que no trae; no cambia `estado_poliza`, pero deja la observación de ampliar garantías.
+- Una fecha inexistente o una moneda no soportada en el documento hacen que `extraer`/`registrar` devuelvan `ok:false` (HU-6); un campo simplemente ausente queda `null` y pasa a revisión.
+- La clave de acceso del link se entrega por un canal aparte (no está en el repositorio) por seguridad; el PRD sugiere el README.
 - Los vencidos se muestran en el reporte y se marcan `estado_contrato = vencido`.
 - Si hay PDF y TXT del mismo contrato, el TXT prevalece y las diferencias solo generan alertas.
 - Los adjuntos de actualizaciones se archivan junto al contrato original como `<id>_otrosi_<mensaje>.<ext>`.

@@ -258,19 +258,25 @@ test("AC-35 [!] un mensaje con error no aborta el lote", async () => {
   for (const id of ["msg-001", "msg-999", "msg-002"]) salidas.push((await call("registrar", { mensaje_id: id }, ctx)).ok);
   assert.deepEqual(salidas, [true, false, true]);
 });
-test("AC-36 [!] moneda desconocida o fecha inexistente → null con confianza 0, nunca inventado", async () => {
+test("AC-36 [!] fecha inexistente o moneda desconocida → ok:false legible, y el lote sigue", async () => {
   const dir = fs.mkdtempSync(path.join(ROOT, "out-test-")); // fixture sintético aislado
   try {
-    const bz = path.join(dir, "buzon", "msg-900"); fs.mkdirSync(bz, { recursive: true });
-    fs.writeFileSync(path.join(bz, "correo.json"), JSON.stringify({ id: "msg-900", de: "lgomez@periferia-ficticia.com", para: "x", asunto: "c", fecha: "2026-09-01T10:00:00-05:00", cuerpo: "adjunto", adjuntos: ["contrato.txt"] }));
-    fs.writeFileSync(path.join(bz, "contrato.txt"), "CONTRATO No. CT-2026-900\n\nEntre ACME LTDA., NIT 900.111.222-3, con domicilio en Bogotá, y PERIFERIA IT GROUP S.A.S., NIT 900.123.456-7.\n\nPRIMERA. OBJETO. Servicios varios.\n\nSEGUNDA. VALOR. El valor es de EUR 5.000,00.\n\nTERCERA. PLAZO. Desde el treinta y uno (31) de febrero de 2026 hasta el primero (1) de enero de 2027.\n");
-    fs.copyFileSync(path.join(ROOT, "fixtures/reto-02/comerciales.json"), path.join(dir, "comerciales.json"));
-    fs.copyFileSync(path.join(ROOT, "fixtures/reto-02/maestro-contratos.csv"), path.join(dir, "maestro-contratos.csv"));
+    fs.cpSync(path.join(ROOT, "fixtures/reto-02"), dir, { recursive: true });
+    const nuevoMsg = (id: string, texto: string) => {
+      const bz = path.join(dir, "buzon", id); fs.mkdirSync(bz, { recursive: true });
+      fs.writeFileSync(path.join(bz, "correo.json"), JSON.stringify({ id, de: "lgomez@periferia-ficticia.com", para: "x", asunto: "c", fecha: "2026-09-01T10:00:00-05:00", cuerpo: "adjunto", adjuntos: ["contrato.txt"] }));
+      fs.writeFileSync(path.join(bz, "contrato.txt"), texto);
+    };
+    const cab = "CONTRATO No. CT-2026-900\n\nEntre ACME LTDA., NIT 900.111.222-3, con domicilio en Bogotá, y PERIFERIA IT GROUP S.A.S., NIT 900.123.456-7.\n\nPRIMERA. OBJETO. Servicios varios.\n\n";
+    nuevoMsg("msg-900", cab + "SEGUNDA. VALOR. El valor es de EUR 5.000,00.\n\nTERCERA. PLAZO. Desde el primero (1) de enero de 2026 hasta el primero (1) de enero de 2027.\n");
+    nuevoMsg("msg-901", cab + "SEGUNDA. VALOR. El valor es de COP $5.000.000.\n\nTERCERA. PLAZO. Desde el treinta y uno (31) de febrero de 2026 hasta el primero (1) de enero de 2027.\n");
     const prev = process.env.FIXTURES_DIR; process.env.FIXTURES_DIR = path.relative(ROOT, dir);
     try {
-      const c = await extraer(nuevoCtx(), "msg-900");
-      assert.equal(c.moneda, null); assert.equal(c.fecha_inicio, null); assert.equal(c.confianza.moneda ?? 0, 0); assert.equal(c.confianza.fecha_inicio ?? 0, 0);
-      assert.equal(c.fecha_fin, "2027-01-01");
+      const ctx = nuevoCtx();
+      const m = await call("extraer", { mensaje_id: "msg-900" }, ctx); assert.equal(m.ok, false); assert.match(m.error!, /moneda.*EUR/i);
+      const f = await call("extraer", { mensaje_id: "msg-901" }, ctx); assert.equal(f.ok, false); assert.match(f.error!, /fecha inválida/i);
+      assert.equal((await call("registrar", { mensaje_id: "msg-900" }, ctx)).ok, false);
+      assert.equal((await call("registrar", { mensaje_id: "msg-001" }, ctx)).ok, true); // el lote continúa con el siguiente mensaje
     } finally { if (prev === undefined) delete process.env.FIXTURES_DIR; else process.env.FIXTURES_DIR = prev; }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

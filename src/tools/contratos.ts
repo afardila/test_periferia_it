@@ -8,7 +8,7 @@ import {
   leerCorreo, leerMaestro, leerProcesados, listarIdsBuzon, marcarProcesado, outDir, sharepointDir, type Correo, type Fila,
 } from "./maestro.js";
 import { textoDePdf } from "./pdf.js";
-import { CAMPOS_DATO, ContratoSchema, UMBRAL, esFechaValida, diasEntre, esContrato, extraerContrato, motivoNoContrato, similitud, slug, type Contrato } from "./extraccion.js";
+import { CAMPOS_DATO, ContratoSchema, UMBRAL, esFechaValida, diasEntre, esContrato, fechasES, extraerContrato, motivoNoContrato, similitud, slug, type Contrato } from "./extraccion.js";
 
 const idMensaje = z.string().describe("Id del mensaje del buzón, p. ej. msg-001");
 const fechaCorreo = (c: Correo) => c.fecha.slice(0, 10);
@@ -54,9 +54,18 @@ async function analizar(ctx: ToolCtx, id: string): Promise<Analisis> {
   return { correo, adjunto: null, texto: null, motivo: motivoNoContrato(ultimo?.nombre ?? null, ultimo?.texto ?? null), avisos: [] };
 }
 
-async function extraerDe(ctx: ToolCtx, id: string): Promise<{ contrato: Contrato; a: Analisis } | { rechazo: string; a: Analisis }> {
+const ISO_NO_SOPORTADAS = "EUR|GBP|MXN|CLP|BRL|ARS|UYU|PYG|BOB|VES|CRC|GTQ|DOP|CAD|CHF|JPY|CNY";
+/** HU-6: fecha inexistente o moneda desconocida en el documento → error legible (el agente sigue con el siguiente mensaje). */
+function errorDeDatos(texto: string): string | null {
+  if (fechasES(texto).some((f) => f === null)) return "el documento contiene una fecha inválida (p. ej. un día inexistente del calendario)";
+  const m = texto.match(new RegExp(`\\b(${ISO_NO_SOPORTADAS})\\b\\s*\\$?\\s*\\d`));
+  return m ? `moneda desconocida o no soportada: ${m[1]} (soportadas: COP, USD, PEN, PAB, HNL)` : null;
+}
+
+async function extraerDe(ctx: ToolCtx, id: string): Promise<{ contrato: Contrato; a: Analisis } | { rechazo: string; a: Analisis } | { error: string }> {
   const a = await analizar(ctx, id);
   if (!a.texto) return { rechazo: a.motivo ?? "sin contrato", a };
+  const e = errorDeDatos(a.texto); if (e) return { error: `Mensaje ${id}: ${e}.` };
   const contrato = extraerContrato(a.texto, contexto(ctx, a.correo));
   contrato.alertas.push(...a.avisos);
   return { contrato, a };
@@ -143,6 +152,7 @@ export const extraer = conLog("extraer", defineTool({
   args: { mensaje_id: idMensaje },
   async execute({ mensaje_id }, ctx) {
     const r = await extraerDe(ctx, mensaje_id);
+    if ("error" in r) return fail(r.error);
     if ("rechazo" in r) return fail(`El mensaje ${mensaje_id} no contiene un contrato: ${r.rechazo}`);
     return ok({ ...r.contrato, adjunto: r.a.adjunto, remitente: r.a.correo.de, fecha_correo: fechaCorreo(r.a.correo) });
   },
@@ -153,6 +163,7 @@ export const validar = conLog("validar", defineTool({
   args: { mensaje_id: idMensaje, contrato: ContratoSchema.optional().describe("Contrato tal como lo devolvió contratos_extraer (con las correcciones del humano si las hay)") },
   async execute({ mensaje_id, contrato }, ctx) {
     const r = contrato ? { contrato, a: await analizar(ctx, mensaje_id) } : await extraerDe(ctx, mensaje_id);
+    if ("error" in r) return fail(r.error);
     if ("rechazo" in r) return ok({ clasificacion: "rechazado", motivo: r.rechazo, requiere_revision: [] });
     return ok(evaluar(ctx, r.contrato));
   },
@@ -170,6 +181,7 @@ export const registrar = conLog("registrar", defineTool({
     if (previo) return ok({ id_contrato: previo.id_contrato ?? null, accion: "ya_procesado", ruta_archivo: null, detalle: `El mensaje ya se procesó (${previo.accion}).` });
 
     const r = contrato ? { contrato, a: await analizar(ctx, mensaje_id) } : await extraerDe(ctx, mensaje_id);
+    if ("error" in r) return fail(r.error);
     if ("rechazo" in r || !r.a.texto || !r.a.adjunto) {
       marcarProcesado(ctx, mensaje_id, "rechazado");
       return ok({ id_contrato: null, accion: "rechazado", ruta_archivo: null, motivo: "rechazo" in r ? r.rechazo : r.a.motivo });
