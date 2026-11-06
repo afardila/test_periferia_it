@@ -3,29 +3,63 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agente de contratos</title>
+<title>Agente de contratos · Periferia IT Group</title>
+<link rel="icon" href="/logo-periferia.jpg">
 <style>
-  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mute:#6b7280; --line:#e5e7eb; --brand:#1d4ed8; --warn:#b45309; --warnbg:#fffbeb; --ok:#15803d; --bad:#b91c1c; }
-  * { box-sizing:border-box } body { margin:0; font:15px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--ink); display:flex; flex-direction:column; height:100dvh }
-  header { padding:10px 14px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:8px; align-items:center; flex-wrap:wrap }
-  header h1 { font-size:16px; margin:0; flex:1 }
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mute:#6b7280; --line:#e5e7eb; --brand:#1d4ed8; --verde:#3ddc84; --warn:#b45309; --warnbg:#fffbeb; --ok:#15803d; --bad:#b91c1c; }
+  * { box-sizing:border-box }
+  body { margin:0; font:15px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--ink); display:flex; flex-direction:column; height:100dvh }
+  header { padding:8px 14px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+  header img { height:34px; width:34px; object-fit:cover; border-radius:8px }
+  header h1 { font-size:16px; margin:0; flex:1 } header h1 small { display:block; font-weight:400; font-size:12px; color:var(--mute) }
   button { font:inherit; border:1px solid var(--line); background:var(--card); padding:6px 10px; border-radius:8px; cursor:pointer }
+  button:disabled { opacity:.5; cursor:not-allowed }
   button.primary { background:var(--brand); color:#fff; border-color:var(--brand) }
-  button.danger { color:var(--bad); border-color:var(--bad) }
-  #log { flex:1; overflow:auto; padding:14px; display:flex; flex-direction:column; gap:10px }
-  .msg { max-width:86%; padding:9px 12px; border-radius:12px; white-space:pre-wrap; word-wrap:break-word }
-  .msg.bot { white-space:normal } .msg table { border-collapse:collapse; margin:6px 0; font-size:13px } .msg th,.msg td { border:1px solid var(--line); padding:3px 7px; text-align:left; vertical-align:top } .msg th { background:#f3f4f6 } .msg code { background:#f3f4f6; padding:0 3px; border-radius:4px; font-size:13px } .msg .h { font-weight:700; margin-top:6px } .msg .sp { height:6px }
-  .user { align-self:flex-end; background:var(--brand); color:#fff }
-  .bot { align-self:flex-start; background:var(--card); border:1px solid var(--line) }
-  .err { align-self:flex-start; background:#fef2f2; border:1px solid #fecaca; color:var(--bad) }
-  details.tool { align-self:flex-start; max-width:92%; background:#eef2ff; border:1px solid #c7d2fe; border-radius:10px; padding:6px 10px; font-size:13px }
-  details.tool summary { cursor:pointer; font-weight:600 }
-  details.tool.fail { background:#fef2f2; border-color:#fecaca }
+  button.ok { background:var(--ok); color:#fff; border-color:var(--ok) } button.danger { color:var(--bad); border-color:var(--bad) }
+
+  /* Fondo del chat con el logo de Periferia como marca de agua */
+  #log { flex:1; overflow:auto; padding:14px; display:flex; flex-direction:column; gap:10px; position:relative; isolation:isolate }
+  #wm { position:fixed; inset:0; z-index:-1; pointer-events:none; background:url('/logo-periferia.jpg') center 55% / min(420px,60vw) no-repeat; opacity:.07 }
+
+  /* Filas con avatar */
+  .row { display:flex; gap:8px; align-items:flex-end; max-width:92% }
+  .row.u { align-self:flex-end; flex-direction:row-reverse } .row.b { align-self:flex-start }
+  .av { flex:0 0 32px; width:32px; height:32px; border-radius:50%; display:grid; place-items:center; font-size:16px; overflow:hidden; border:1px solid var(--line); background:#fff }
+  .av img { width:100%; height:100%; object-fit:cover }
+  .av.user { background:var(--brand); color:#fff; border-color:var(--brand) }
+  .msg { padding:9px 12px; border-radius:14px; word-wrap:break-word; min-width:0 }
+  .user .msg, .msg.user { background:var(--brand); color:#fff; white-space:pre-wrap; border-bottom-right-radius:4px }
+  .msg.bot { background:var(--card); border:1px solid var(--line); border-bottom-left-radius:4px; position:relative; overflow:hidden }
+  .msg.bot::after { content:''; position:absolute; right:8px; bottom:6px; width:46px; height:46px; background:url('/logo-periferia.jpg') center/cover; opacity:.08; pointer-events:none }
+  .msg.err { background:#fef2f2; border:1px solid #fecaca; color:var(--bad) }
+  .msg table { border-collapse:collapse; margin:6px 0; font-size:13px } .msg th,.msg td,.tabla th,.tabla td { border:1px solid var(--line); padding:3px 7px; text-align:left; vertical-align:top }
+  .msg th, .tabla th { background:#f3f4f6; position:sticky; top:0 }
+  .msg code { background:#f3f4f6; padding:0 3px; border-radius:4px; font-size:13px } .msg .h { font-weight:700; margin-top:6px } .msg .sp { height:6px }
+  .scroll { overflow:auto; max-width:100% }
+  mark { background:#fde68a; border-radius:3px; padding:0 2px }
+
+  /* Indicadores de "escribiendo" */
+  .typing { display:inline-flex; gap:4px; align-items:center; padding:12px 14px }
+  .typing i { width:7px; height:7px; border-radius:50%; background:#9ca3af; animation:b 1.2s infinite ease-in-out }
+  .typing i:nth-child(2) { animation-delay:.15s } .typing i:nth-child(3) { animation-delay:.3s }
+  .typing small { margin-left:6px; color:var(--mute); font-size:12px }
+  .user .typing i { background:#c7d2fe } .user .typing small { color:#e0e7ff }
+  @keyframes b { 0%,80%,100% { transform:translateY(0); opacity:.5 } 40% { transform:translateY(-4px); opacity:1 } }
+
+  /* Herramientas */
+  details.tool { align-self:flex-start; max-width:92%; margin-left:40px; background:#eef2ff; border:1px solid #c7d2fe; border-radius:10px; padding:5px 10px; font-size:13px }
+  details.tool summary { cursor:pointer; font-weight:600 } details.tool.fail { background:#fef2f2; border-color:#fecaca }
   details.tool pre { margin:6px 0 0; white-space:pre-wrap; word-break:break-word; font-size:12px }
-  .confirm { align-self:flex-start; max-width:92%; background:var(--warnbg); border:2px solid #f59e0b; border-radius:12px; padding:10px 12px }
-  .confirm b { color:var(--warn) } .confirm pre { white-space:pre-wrap; word-break:break-word; font-size:12px; margin:6px 0 }
-  .confirm .row { display:flex; gap:8px }
-  .chips { display:flex; gap:6px; flex-wrap:wrap; padding:0 14px 6px }
+  details.panel { align-self:stretch; max-width:none; margin-left:0; background:var(--card); border-color:var(--line) }
+  .tabla { border-collapse:collapse; font-size:12px; margin:6px 0; background:#fff } .tabla td { white-space:nowrap } .tabla td.largo { white-space:normal; min-width:220px }
+  .panel h3 { font-size:14px; margin:10px 0 4px }
+
+  /* Confirmación */
+  .confirm { align-self:flex-start; margin-left:40px; max-width:92%; background:var(--warnbg); border:2px solid #f59e0b; border-radius:12px; padding:10px 12px; display:flex; flex-direction:column; gap:8px }
+  .confirm b { color:var(--warn) } .confirm .row2 { display:flex; gap:8px; flex-wrap:wrap }
+  .confirm .campos { font-size:13px }
+
+  .chips { display:flex; gap:6px; flex-wrap:wrap; padding:6px 14px }
   form { display:flex; gap:8px; padding:10px 14px; background:var(--card); border-top:1px solid var(--line) }
   input { flex:1; font:inherit; padding:9px 12px; border:1px solid var(--line); border-radius:10px }
   #usage { font-size:12px; color:var(--mute); padding:0 14px 8px; background:var(--card) }
@@ -33,35 +67,46 @@
 </head>
 <body>
 <header>
-  <h1>Agente de contratos</h1>
-  <button id="state">Ver maestro</button>
-  <button id="new">Nueva sesión</button>
+  <img src="/logo-periferia.jpg" alt="Periferia IT Group">
+  <h1>Agente de contratos <small>Punto único de recepción · Registro de contratos vigentes</small></h1>
+  <button id="state">📋 Ver maestro</button>
+  <button id="new">🆕 Nueva sesión</button>
 </header>
-<div id="log"></div>
+<div id="log"><div id="wm"></div></div>
 <div class="chips" id="chips"></div>
-<form id="f"><input id="q" placeholder="Escribe una instrucción…" autocomplete="off"><button class="primary">Enviar</button></form>
+<form id="f"><input id="q" placeholder="Escribe una instrucción…" autocomplete="off" maxlength="8000"><button class="primary" id="send">Enviar ➤</button></form>
 <div id="usage"></div>
 <script>
 const sid = () => (localStorage.sid ||= crypto.randomUUID());
-const log = document.getElementById('log'), q = document.getElementById('q');
+const log = document.getElementById('log'), q = document.getElementById('q'), send = document.getElementById('send');
 let busy = false;
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 function add(node) { log.appendChild(node); log.scrollTop = log.scrollHeight; return node; }
 const pretty = (o) => typeof o === 'string' ? o : JSON.stringify(o, null, 2);
 
-function toolBox(name, input) {
-  const d = el('details', 'tool'); d.dataset.name = name;
-  d.appendChild(el('summary', null, '🔧 ' + name));
-  d.appendChild(el('pre', null, 'entrada: ' + pretty(input)));
-  return d;
+// ───────── Emojis por concepto (clasificación, acciones, estados, alertas)
+const EMOJI = [
+  [/\b(nuevo|nueva)\b/gi, '🆕'], [/\b(actualizaci[oó]n|actualizado|otros[ií])\b/gi, '🔄'], [/\b(duplicado)\b/gi, '📑'],
+  [/\b(rechazado|rechazada)\b/gi, '⛔'], [/\b(insertado|registrado|registrada)\b/gi, '✅'],
+  [/\b(pendiente de confirmaci[oó]n|requiere revisi[oó]n|requiere tu confirmaci[oó]n|detenido|sin registrar)\b/gi, '👉'],
+  [/\b(pendiente|pendientes)\b/gi, '⏳'], [/\b(vencido|vencidos|venci[oó])\b/gi, '🔴'], [/\b(vigente)\b/gi, '🟢'],
+  [/\b(no_aplica)\b/gi, '⚪'], [/\b(alertas?|observaciones?)\b/gi, '⚠️'], [/\b(notas?)\b/gi, '📝'], [/\b(p[oó]lizas?)\b/gi, '🛡️'],
+];
+/** Antepone el emoji a la primera aparición de cada concepto en un texto ya escapado (no toca etiquetas). */
+function emojis(htmlSeguro) {
+  return htmlSeguro.split(/(<[^>]+>)/).map((trozo) => {
+    if (trozo.startsWith('<')) return trozo;
+    for (const [re, e] of EMOJI) trozo = trozo.replace(re, (m) => (trozo.includes(e + ' ' + m) ? m : e + ' ' + m));
+    return trozo;
+  }).join('');
 }
 
-
-/** Markdown mínimo y SEGURO: primero se escapa todo el HTML; solo se generan etiquetas propias (tablas, negrita, código, listas). */
+/** Markdown mínimo y SEGURO: primero se escapa todo el HTML; solo se generan etiquetas propias. */
 function md(texto) {
   const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const inl = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  const inl = (t) => emojis(esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>'))
+    .replace(/(¿[^?<]{3,}\?)/g, '<mark>$1</mark>'); // las preguntas al usuario se resaltan
   const lineas = texto.split('\n'); const out = [];
   for (let i = 0; i < lineas.length; i++) {
     const l = lineas[i];
@@ -69,54 +114,130 @@ function md(texto) {
       const filas = []; while (i < lineas.length && /^\s*\|.*\|\s*$/.test(lineas[i])) filas.push(lineas[i++]); i--;
       const celdas = (f) => f.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
       const cuerpo = filas.filter((f) => !/^\s*\|[\s:|-]+\|\s*$/.test(f));
-      out.push('<table>' + cuerpo.map((f, k) => '<tr>' + celdas(f).map((c) => (k === 0 ? '<th>' : '<td>') + inl(c) + (k === 0 ? '</th>' : '</td>')).join('') + '</tr>').join('') + '</table>');
+      out.push('<div class="scroll"><table>' + cuerpo.map((f, k) => '<tr>' + celdas(f).map((c) => (k === 0 ? '<th>' : '<td>') + inl(c) + (k === 0 ? '</th>' : '</td>')).join('') + '</tr>').join('') + '</table></div>');
     } else if (/^#{1,4}\s/.test(l)) out.push('<div class="h">' + inl(l.replace(/^#+\s/, '')) + '</div>');
     else if (/^\s*[-*]\s/.test(l)) out.push('<div class="li" style="padding-left:' + (l.match(/^\s*/)[0].length * 6 + 10) + 'px">• ' + inl(l.replace(/^\s*[-*]\s/, '')) + '</div>');
+    else if (/^\s*\d+\.\s/.test(l)) out.push('<div class="li" style="padding-left:10px">' + inl(l.trim()) + '</div>');
     else out.push(l.trim() ? '<div>' + inl(l) + '</div>' : '<div class="sp"></div>');
   }
   return out.join('');
 }
-function botMsg(texto) { const d = el('div', 'msg bot'); d.innerHTML = md(texto); return d; }
 
+// ───────── Burbujas con avatar
+const avatarAgente = () => { const a = el('div', 'av'); const i = el('img'); i.src = '/logo-periferia.jpg'; i.alt = 'Agente'; a.appendChild(i); return a; };
+const avatarUsuario = () => el('div', 'av user', '👤');
+function burbujaUsuario(texto) { const r = el('div', 'row u user'); r.append(avatarUsuario(), el('div', 'msg', texto)); return r; }
+function burbujaAgente(texto) { const r = el('div', 'row b'); const m = el('div', 'msg bot'); m.innerHTML = md(texto); r.append(avatarAgente(), m); return r; }
+function burbujaError(texto) { const r = el('div', 'row b'); r.append(avatarAgente(), el('div', 'msg err', '❗ ' + texto)); return r; }
+function escribiendo(quien) {
+  const r = el('div', 'row ' + (quien === 'agente' ? 'b' : 'u user'));
+  const m = el('div', 'msg ' + (quien === 'agente' ? 'bot' : '')); const t = el('span', 'typing'); t.append(el('i'), el('i'), el('i'), el('small', null, quien === 'agente' ? 'El agente está trabajando…' : 'Escribiendo…'));
+  m.appendChild(t); r.append(quien === 'agente' ? avatarAgente() : avatarUsuario(), m); return r;
+}
+
+// ───────── Llamadas a herramientas
+const ICONO = { contratos_leer_buzon: '📥', contratos_extraer: '🔎', contratos_validar: '🧪', contratos_registrar: '💾', contratos_leer_pdf: '📄', contratos_alertas: '🚨' };
+function resumenTool(ev) {
+  try { const o = typeof ev.output === 'string' ? JSON.parse(ev.output) : ev.output; const d = o && o.data;
+    if (!d) return ''; if (d.clasificacion) return ' → ' + d.clasificacion; if (d.accion) return ' → ' + d.accion;
+    if (d.mensajes) return ' → ' + d.mensajes.length + ' mensajes'; if (d.id_contrato) return ' → ' + d.id_contrato; } catch {}
+  return '';
+}
 function toolBox(ev) {
   const d = el('details', 'tool' + (ev.ok ? '' : ' fail'));
-  d.appendChild(el('summary', null, (ev.ok ? '✅ ' : '⚠️ ') + ev.name + (ev.input && ev.input.mensaje_id ? ' · ' + ev.input.mensaje_id : '')));
+  const s = (ev.ok ? '✅ ' : '⚠️ ') + (ICONO[ev.name] || '🔧') + ' ' + ev.name + (ev.input && ev.input.mensaje_id ? ' · ' + ev.input.mensaje_id : '') + (ev.ok ? resumenTool(ev) : ' → ' + String(ev.output).slice(0, 60));
+  d.appendChild(el('summary', null, s));
   d.appendChild(el('pre', null, 'argumentos: ' + pretty(ev.input)));
-  d.appendChild(el('pre', null, (ev.ok ? 'resultado: ' : 'error: ') + pretty(ev.output)));
+  let salida = ev.output; try { salida = JSON.stringify(JSON.parse(ev.output), null, 2); } catch {}
+  d.appendChild(el('pre', null, (ev.ok ? 'resultado: ' : 'error: ') + pretty(salida)));
   return d;
 }
-function render(j) {
+
+// ───────── Confirmación con botones (los botones solo redactan el mensaje del usuario; el backend sigue validando)
+function tarjetaConfirmacion(toolCalls) {
+  const pend = (toolCalls || []).filter((t) => t.name === 'contratos_registrar' && !t.ok && /^requiere revisión/.test(String(t.output)));
+  const ultimo = pend[pend.length - 1];
+  const mid = ultimo && ultimo.input && ultimo.input.mensaje_id;
+  const campos = ultimo ? String(ultimo.output).replace(/^requiere revisión:\s*/, '').split('.')[0] : '';
+  const c = el('div', 'confirm');
+  const t = el('div'); t.appendChild(el('b', null, '⏸ 👉 El agente espera tu confirmación. ')); t.appendChild(document.createTextNode('Nada dudoso se registra sin tu respuesta.'));
+  c.appendChild(t);
+  if (mid) c.appendChild(el('div', 'campos', '📌 ' + mid + ' · campos en revisión: ' + campos));
+  const fila = el('div', 'row2');
+  const bOk = el('button', 'ok', '✅ Confirmar lo propuesto'), bFix = el('button', null, '✏️ Corregir valores'), bNo = el('button', 'danger', '⛔ No registrar');
+  const usar = (texto) => { c.querySelectorAll('button').forEach((b) => (b.disabled = true)); enviar(texto); };
+  bOk.onclick = () => usar(`Confirmo${mid ? ' para ' + mid : ''} los valores propuestos de los campos en revisión${campos ? ' (' + campos + ')' : ''}. Regístralo.`);
+  bFix.onclick = () => { q.value = `Corrijo${mid ? ' ' + mid : ''}: `; q.focus(); };
+  bNo.onclick = () => usar(`No registres${mid ? ' ' + mid : ''}; déjalo pendiente de revisión.`);
+  fila.append(bOk, bFix, bNo); c.appendChild(fila); return c;
+}
+
+function render(j, { conUsuario = false } = {}) {
   for (const ev of (j.events || [])) {
-    if (ev.type === 'text') add(botMsg(ev.text));
-    else if (ev.type === 'user') add(el('div', 'msg user', ev.text));
-    else if (ev.type === 'error') add(el('div', 'msg err', ev.message));
+    if (ev.type === 'text') add(burbujaAgente(ev.text));
+    else if (ev.type === 'user') { if (conUsuario) add(burbujaUsuario(ev.text)); } // la burbuja del usuario ya se pintó al enviar
+    else if (ev.type === 'error') add(burbujaError(ev.message));
     else if (ev.type === 'tool') add(toolBox(ev));
   }
-  if (j.needsConfirmation) {
-    const c = el('div', 'confirm');
-    const t = el('div'); t.appendChild(el('b', null, '⏸ El agente espera tu confirmación. ')); t.appendChild(document.createTextNode('Responde en el chat confirmando o corrigiendo los campos en revisión; solo entonces registrará.'));
-    c.appendChild(t); add(c); q.focus();
-  }
+  if (j.needsConfirmation) add(tarjetaConfirmacion(j.toolCalls));
 }
 
-async function call(url, body) {
-  if (busy) return; busy = true;
-  const wait = add(el('div', 'msg bot', 'Pensando…'));
+const pintarUso = (u) => { if (u) document.getElementById('usage').textContent = `🤖 Llamadas al modelo: ${u.calls} · tokens entrada: ${u.input} · salida: ${u.output} · caché leída: ${u.cache_read} · caché escrita: ${u.cache_write}`; };
+const bloquear = (v) => { busy = v; send.disabled = v; document.querySelectorAll('#chips button').forEach((b) => (b.disabled = v)); };
+
+/** Envío único: si ya hay una petición en curso, se ignora (evita mensajes duplicados por doble clic o Enter). */
+async function enviar(texto) {
+  const m = (texto || '').trim(); if (!m || busy) return;
+  bloquear(true); quitarEscribiendoUsuario();
+  add(burbujaUsuario(m));
+  const wait = add(escribiendo('agente'));
   try {
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: sid(), ...body }) });
-    const j = await r.json(); wait.remove(); render(j);
-    if (j.usage) document.getElementById('usage').textContent = `Llamadas al modelo: ${j.usage.calls} · tokens entrada: ${j.usage.input} · salida: ${j.usage.output} · caché leída: ${j.usage.cache_read} · caché escrita: ${j.usage.cache_write}`;
-  } catch (e) { wait.remove(); add(el('div', 'msg err', 'Error de red: ' + e.message)); }
-  busy = false;
+    const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: sid(), message: m }) });
+    const j = await r.json(); wait.remove(); render(j); pintarUso(j.usage);
+  } catch (e) { wait.remove(); add(burbujaError('Error de red: ' + e.message)); }
+  bloquear(false); q.focus();
 }
 
-document.getElementById('f').onsubmit = (e) => { e.preventDefault(); const m = q.value.trim(); if (!m) return; q.value = ''; add(el('div', 'msg user', m)); call('/api/chat', { message: m }); };
-document.getElementById('new').onclick = async () => { await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: sid() }) }); localStorage.removeItem('sid'); log.textContent = ''; document.getElementById('usage').textContent = ''; };
-document.getElementById('state').onclick = async () => { const s = await (await fetch('/api/state?sessionId=' + sid())).json(); const d = add(el('details', 'tool')); d.append(el('summary', null, '📋 Maestro (' + s.maestro.length + ' contratos) · ' + Object.keys(s.procesados || {}).length + ' mensajes procesados'), el('pre', null, pretty(s))); };
+// Indicador "Escribiendo…" del usuario mientras teclea
+let tecleo = null, tUser = null;
+function quitarEscribiendoUsuario() { if (tecleo) { tecleo.remove(); tecleo = null; } }
+q.addEventListener('input', () => {
+  if (busy) return;
+  if (q.value.trim() && !tecleo) tecleo = add(escribiendo('usuario'));
+  if (!q.value.trim()) quitarEscribiendoUsuario();
+  clearTimeout(tUser); tUser = setTimeout(quitarEscribiendoUsuario, 2500);
+});
+
+document.getElementById('f').onsubmit = (e) => { e.preventDefault(); const m = q.value; q.value = ''; enviar(m); };
+document.getElementById('new').onclick = async () => {
+  if (busy) return;
+  await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: sid() }) });
+  localStorage.removeItem('sid'); log.querySelectorAll(':scope > :not(#wm)').forEach((n) => n.remove()); document.getElementById('usage').textContent = '';
+};
+
+// ───────── Maestro formateado en tablas
+const ESTADO = { vigente: '🟢 vigente', vencido: '🔴 vencido', pendiente: '⏳ pendiente', vencida: '🔴 vencida', no_aplica: '⚪ no_aplica', insertado: '✅ insertado', actualizado: '🔄 actualizado', duplicado: '📑 duplicado', rechazado: '⛔ rechazado' };
+function tabla(filas, columnas, largas = []) {
+  const t = el('table', 'tabla'); const h = el('tr'); columnas.forEach((c) => h.appendChild(el('th', null, c))); t.appendChild(h);
+  for (const f of filas) { const tr = el('tr'); columnas.forEach((c) => { const v = f[c] == null ? '' : String(f[c]); const td = el('td', largas.includes(c) ? 'largo' : null, ESTADO[v] || (c === 'alertas' && v ? '⚠️ ' + v : c === 'valor' && v ? Number(v).toLocaleString('es-CO') : v)); tr.appendChild(td); }); t.appendChild(tr); }
+  const s = el('div', 'scroll'); s.appendChild(t); return s;
+}
+document.getElementById('state').onclick = async () => {
+  const s = await (await fetch('/api/state?sessionId=' + sid())).json();
+  const d = add(el('details', 'tool panel')); d.open = true;
+  const proc = Object.entries(s.procesados || {});
+  d.appendChild(el('summary', null, '📋 Maestro de contratos (' + s.maestro.length + ') · 📨 ' + proc.length + ' mensajes procesados'));
+  d.appendChild(el('h3', null, '📋 Maestro'));
+  d.appendChild(tabla(s.maestro, ['id_contrato', 'cliente', 'nit_cliente', 'pais', 'valor', 'moneda', 'fecha_inicio', 'fecha_fin', 'estado_contrato', 'requiere_poliza', 'tipo_poliza', 'estado_poliza', 'comercial', 'fecha_registro', 'fuente', 'objeto', 'alertas', 'ruta_sharepoint'], ['objeto', 'alertas']));
+  if (proc.length) { d.appendChild(el('h3', null, '📨 Mensajes procesados')); d.appendChild(tabla(proc.map(([id, p]) => ({ mensaje: id, accion: p.accion, id_contrato: p.id_contrato || '' })), ['mensaje', 'accion', 'id_contrato'])); }
+  if (s.alertas_md) { d.appendChild(el('h3', null, '🚨 Último reporte de alertas')); const m = el('div', 'msg bot'); m.innerHTML = md(s.alertas_md); d.appendChild(m); }
+};
+
 for (const p of ['Procesa el buzón de contratos con fecha de hoy 2026-09-03. Registra lo que esté limpio, muéstrame lo que requiere revisión campo por campo y termina con el reporte de alertas. No registres nada dudoso sin preguntarme.', 'Procesa únicamente el mensaje msg-006', 'Confirmo el valor 0 y la fecha fin 2027-08-31'])
-  { const b = el('button', null, p.length > 45 ? p.slice(0, 42) + '…' : p); b.title = p; b.onclick = () => { add(el('div', 'msg user', p)); call('/api/chat', { message: p }); }; document.getElementById('chips').appendChild(b); }
-// Al recargar la página se recupera el historial de la sesión (GET /api/sessions/:id)
-(async () => { try { const r = await fetch('/api/sessions/' + sid()); if (!r.ok) return; const h = await r.json(); render({ events: h.eventos || [] }); if (h.usage) document.getElementById('usage').textContent = `Llamadas al modelo: ${h.usage.calls} · tokens entrada: ${h.usage.input} · salida: ${h.usage.output} · caché leída: ${h.usage.cache_read} · caché escrita: ${h.usage.cache_write}`; } catch {} })();
+  { const b = el('button', null, (p.startsWith('Procesa el') ? '📥 ' : p.startsWith('Confirmo') ? '✅ ' : '🔎 ') + (p.length > 45 ? p.slice(0, 42) + '…' : p)); b.title = p; b.onclick = () => enviar(p); document.getElementById('chips').appendChild(b); }
+
+// Al recargar se recupera el historial de la sesión (GET /api/sessions/:id), con las burbujas del usuario
+(async () => { try { const r = await fetch('/api/sessions/' + sid()); if (!r.ok) return; const h = await r.json(); render({ events: h.eventos || [] }, { conUsuario: true }); pintarUso(h.usage); } catch {} })();
 </script>
 </body>
 </html>
