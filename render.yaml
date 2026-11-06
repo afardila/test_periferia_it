@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: agente-contratos
+    runtime: node
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: MODEL
+        value: claude-sonnet-5-5
+      - key: FIXTURES_DIR
+        value: ./fixtures-demo

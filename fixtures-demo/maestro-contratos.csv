@@ -1,0 +1,5 @@
+numero,cliente,nit,objeto,valor,moneda,fecha_inicio,fecha_fin,comercial_email,estado,version
+CT-2026-001,Ejemplo Andina S.A.,900111222-1,Soporte de plataforma,120000000,COP,2026-01-15,2026-06-20,ana@ejemplo.test,vigente,1
+CT-2026-002,Demo Logística Ltda.,900333444-5,Desarrollo de portal,85000000,COP,2026-02-01,2026-08-10,luis@ejemplo.test,vigente,1
+CT-2025-017,Prueba Agro S.A.S.,900555666-7,Mantenimiento anual,40000000,COP,2025-06-01,2026-05-15,ana@ejemplo.test,vigente,2
+CT-2025-030,Muestra Salud S.A.,900777888-9,Licenciamiento,60000000,COP,2025-12-01,2026-12-01,marta@ejemplo.test,vigente,1

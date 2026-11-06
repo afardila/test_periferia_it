@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agente de contratos</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mute:#6b7280; --line:#e5e7eb; --brand:#1d4ed8; --warn:#b45309; --warnbg:#fffbeb; --ok:#15803d; --bad:#b91c1c; }
+  * { box-sizing:border-box } body { margin:0; font:15px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--ink); display:flex; flex-direction:column; height:100dvh }
+  header { padding:10px 14px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+  header h1 { font-size:16px; margin:0; flex:1 }
+  button { font:inherit; border:1px solid var(--line); background:var(--card); padding:6px 10px; border-radius:8px; cursor:pointer }
+  button.primary { background:var(--brand); color:#fff; border-color:var(--brand) }
+  button.danger { color:var(--bad); border-color:var(--bad) }
+  #log { flex:1; overflow:auto; padding:14px; display:flex; flex-direction:column; gap:10px }
+  .msg { max-width:86%; padding:9px 12px; border-radius:12px; white-space:pre-wrap; word-wrap:break-word }
+  .user { align-self:flex-end; background:var(--brand); color:#fff }
+  .bot { align-self:flex-start; background:var(--card); border:1px solid var(--line) }
+  .err { align-self:flex-start; background:#fef2f2; border:1px solid #fecaca; color:var(--bad) }
+  details.tool { align-self:flex-start; max-width:92%; background:#eef2ff; border:1px solid #c7d2fe; border-radius:10px; padding:6px 10px; font-size:13px }
+  details.tool summary { cursor:pointer; font-weight:600 }
+  details.tool.fail { background:#fef2f2; border-color:#fecaca }
+  details.tool pre { margin:6px 0 0; white-space:pre-wrap; word-break:break-word; font-size:12px }
+  .confirm { align-self:flex-start; max-width:92%; background:var(--warnbg); border:2px solid #f59e0b; border-radius:12px; padding:10px 12px }
+  .confirm b { color:var(--warn) } .confirm pre { white-space:pre-wrap; word-break:break-word; font-size:12px; margin:6px 0 }
+  .confirm .row { display:flex; gap:8px }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; padding:0 14px 6px }
+  form { display:flex; gap:8px; padding:10px 14px; background:var(--card); border-top:1px solid var(--line) }
+  input { flex:1; font:inherit; padding:9px 12px; border:1px solid var(--line); border-radius:10px }
+  #usage { font-size:12px; color:var(--mute); padding:0 14px 8px; background:var(--card) }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agente de contratos</h1>
+  <button id="state">Ver maestro</button>
+  <button id="new">Nueva sesión</button>
+</header>
+<div id="log"></div>
+<div class="chips" id="chips"></div>
+<form id="f"><input id="q" placeholder="Escribe una instrucción…" autocomplete="off"><button class="primary">Enviar</button></form>
+<div id="usage"></div>
+<script>
+const sid = () => (localStorage.sid ||= crypto.randomUUID());
+const log = document.getElementById('log'), q = document.getElementById('q');
+let busy = false;
+
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function add(node) { log.appendChild(node); log.scrollTop = log.scrollHeight; return node; }
+const pretty = (o) => typeof o === 'string' ? o : JSON.stringify(o, null, 2);
+
+function toolBox(name, input) {
+  const d = el('details', 'tool'); d.dataset.name = name;
+  d.appendChild(el('summary', null, '🔧 ' + name));
+  d.appendChild(el('pre', null, 'entrada: ' + pretty(input)));
+  return d;
+}
+
+let lastTool = {};
+function render(events) {
+  for (const ev of events) {
+    if (ev.type === 'text') add(el('div', 'msg bot', ev.text));
+    else if (ev.type === 'error') add(el('div', 'msg err', ev.message));
+    else if (ev.type === 'tool_call') lastTool[ev.id] = add(toolBox(ev.name, ev.input));
+    else if (ev.type === 'tool_result') {
+      const box = lastTool[ev.id]; if (!box) continue;
+      if (!ev.ok) box.classList.add('fail');
+      box.querySelector('summary').textContent = (ev.ok ? '✅ ' : '⚠️ ') + ev.name;
+      box.appendChild(el('pre', null, 'resultado: ' + pretty(ev.output)));
+      const card = document.querySelector('.confirm[data-id="' + ev.id + '"]'); if (card) card.remove();
+    }
+    else if (ev.type === 'confirmation_required') {
+      const c = el('div', 'confirm'); c.dataset.id = ev.id;
+      const t = el('div'); t.appendChild(el('b', null, '⏸ Requiere tu confirmación: ')); t.appendChild(document.createTextNode(ev.name));
+      c.appendChild(t); c.appendChild(el('pre', null, pretty(ev.input)));
+      const row = el('div', 'row');
+      const ok = el('button', 'primary', 'Aprobar'), no = el('button', 'danger', 'Rechazar');
+      ok.onclick = () => decide(true); no.onclick = () => decide(false);
+      row.append(ok, no); c.appendChild(row); add(c);
+    }
+  }
+}
+
+async function call(url, body) {
+  if (busy) return; busy = true;
+  const wait = add(el('div', 'msg bot', '…'));
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: sid(), ...body }) });
+    const j = await r.json(); wait.remove(); render(j.events || []);
+    if (j.usage) document.getElementById('usage').textContent = `Llamadas al modelo: ${j.usage.calls} · tokens entrada: ${j.usage.input} · salida: ${j.usage.output} · caché leída: ${j.usage.cache_read}`;
+  } catch (e) { wait.remove(); add(el('div', 'msg err', 'Error de red: ' + e.message)); }
+  busy = false;
+}
+const decide = (approve) => { document.querySelectorAll('.confirm button').forEach(b => b.disabled = true); return call('/api/confirm', { approve }); };
+
+document.getElementById('f').onsubmit = (e) => { e.preventDefault(); const m = q.value.trim(); if (!m) return; q.value = ''; add(el('div', 'msg user', m)); call('/api/chat', { message: m }); };
+document.getElementById('new').onclick = async () => { await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: sid() }) }); localStorage.removeItem('sid'); log.textContent = ''; document.getElementById('usage').textContent = ''; };
+document.getElementById('state').onclick = async () => { const s = await (await fetch('/api/state?sessionId=' + sid())).json(); add(el('details', 'tool')).append(el('summary', null, '📋 Maestro (' + s.maestro.length + ' contratos)'), el('pre', null, pretty(s))); };
+for (const p of ['Procesa únicamente el mensaje msg-001','Procesa todo el buzón, un mensaje a la vez', 'Reporte de vencimientos a 90 días', 'Muéstrame el contrato CT-2026-001'])
+  { const b = el('button', null, p); b.onclick = () => { add(el('div', 'msg user', p)); call('/api/chat', { message: p }); }; document.getElementById('chips').appendChild(b); }
+</script>
+</body>
+</html>
