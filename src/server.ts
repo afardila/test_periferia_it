@@ -49,7 +49,7 @@ export function createApp({ agente }: { agente: Agente }) {
     next();
   });
 
-  app.use(express.static(fileURLToPath(new URL("../web", import.meta.url))));
+  app.use(express.static(fileURLToPath(new URL("../web", import.meta.url)), { etag: false, lastModified: false, setHeaders: (res) => res.setHeader("Cache-Control", "no-store") })); // sin caché: cada despliegue se ve al recargar
   const bad = (res: express.Response, message: string) => res.status(400).json({ reply: message, events: [{ type: "error", message }] });
 
   app.get("/api/tools", (_req, res) => res.json(tools.map((t) => ({ name: t.name, description: t.description }))));
