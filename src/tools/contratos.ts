@@ -113,7 +113,8 @@ function evaluar(ctx: ToolCtx, c: Contrato): Evaluacion {
   }
 
   // Nuevo: todo campo ausente o con confianza < 0.8 exige confirmación humana (no se asume nada)
-  const obligatorios = CAMPOS_DATO.filter((k) => k !== "tipo_poliza" || c.requiere_poliza === true);
+  // el comercial desconocido NO bloquea (HU-3): queda como observación en `alertas`
+  const obligatorios = CAMPOS_DATO.filter((k) => k !== "comercial" && (k !== "tipo_poliza" || c.requiere_poliza === true));
   for (const k of obligatorios) {
     if (c[k] === null) marcar(k, "no figura en el documento");
     else if (bajaConfianza(c, k)) marcar(k, `confianza ${(c.confianza[k] ?? 0).toFixed(2)} < ${UMBRAL}`);

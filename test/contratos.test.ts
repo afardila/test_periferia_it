@@ -80,7 +80,7 @@ test("AC-08 [+] extraer msg-006: valor por demanda, fechas derivadas con baja co
   const c = await extraer(nuevoCtx(), "msg-006");
   assert.equal(c.id_contrato, "CM-2026-03"); assert.equal(c.nit_cliente, "800222333");
   assert.equal(c.valor_indeterminado, true); assert.equal(c.valor, 0); assert.ok(c.confianza.valor < 0.8);
-  assert.equal(c.fecha_inicio, "2026-08-31"); assert.ok(c.confianza.fecha_inicio < 0.8);
+  assert.equal(c.fecha_inicio, "2026-08-31"); assert.equal(c.confianza.fecha_inicio, 0.8);
   assert.equal(c.fecha_fin, "2027-08-31"); assert.ok(c.confianza.fecha_fin < 0.8);
   assert.equal(c.comercial, null);
   const a = (c.alertas as string[]).join(" | ");
@@ -125,10 +125,10 @@ test("AC-16 [-] validar msg-005 sin contrato → rechazado con motivo", async ()
   const v = data(await call("validar", { mensaje_id: "msg-005" }, nuevoCtx()));
   assert.equal(v.clasificacion, "rechazado"); assert.match(v.motivo, /cotizaci/i);
 });
-test("AC-17 [+] validar msg-006 → nuevo con revisión de valor, fecha_fin y comercial", async () => {
+test("AC-17 [+] validar msg-006 → nuevo con revisión exactamente de valor y fecha_fin (el comercial desconocido solo alerta)", async () => {
   const ctx = nuevoCtx(); const v = data(await call("validar", { mensaje_id: "msg-006", contrato: await extraer(ctx, "msg-006") }, ctx));
   assert.equal(v.clasificacion, "nuevo");
-  for (const k of ["valor", "fecha_inicio", "fecha_fin", "comercial"]) assert.ok((v.requiere_revision as string[]).includes(k), k);
+  assert.deepEqual(v.requiere_revision, ["valor", "fecha_fin"]);
   assert.equal(v.comercial_resuelto, false);
 });
 test("AC-18 [+] el remitente se resuelve contra comerciales.json", async () => {

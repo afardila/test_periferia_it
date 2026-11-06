@@ -44,7 +44,7 @@ Esquema `Contrato`: campos del maestro (§7.2) + `valor_indeterminado` + `confia
 - AC-14 (+) `validar(msg-003)` → `actualizacion`, `id_contrato_existente=CT-2026-011`, `diferencias` = {valor 350000→520000, fecha_fin 2027-05-01→2027-11-01}, `requiere_revision` vacío (las diferencias de un otrosí no son conflicto).
 - AC-15 (+) `validar(msg-004)` → `duplicado` con `id_contrato_existente=CT-2026-012` (RN1).
 - AC-16 (−) `validar(msg-005)` → `rechazado` con motivo.
-- AC-17 (+) `validar(msg-006)` → `nuevo`, `requiere_revision` ⊇ {valor, fecha_fin}; remitente `jperez@…` desconocido se reporta (`comercial_resuelto:false`) y no bloquea.
+- AC-17 (+) `validar(msg-006)` → `nuevo`, `requiere_revision` = [valor, fecha_fin]; remitente `jperez@…` desconocido se reporta (`comercial_resuelto:false`) y no bloquea.
 - AC-18 (+) Remitentes conocidos se resuelven a nombre (`lgomez`→Laura Gómez Restrepo, etc.).
 - AC-19 (−) Mismo `id_contrato` con otro `valor` y documento no otrosí → `actualizacion` con `diferencias` y `requiere_revision` incluye `valor` (conflicto con maestro).
 - AC-20 (!) `validar` con `contrato` mal formado (zod) → `ok:false` con detalle del campo.
@@ -96,7 +96,7 @@ Esquema `Contrato`: campos del maestro (§7.2) + `valor_indeterminado` + `confia
 | 003 | cruiz | actualizacion | — | modificar CT-2026-011 + historial | valor y fecha_fin |
 | 004 | lgomez | duplicado | — | ninguna | CT-2026-012 |
 | 005 | amolina | rechazado | — | ninguna | cotización, no contrato |
-| 006 | jperez (desconocido) | nuevo | valor, fecha_fin (+ fecha_inicio) | NO registra hasta confirmar | marco por demanda |
+| 006 | jperez (desconocido) | nuevo | valor, fecha_fin | NO registra hasta confirmar | marco por demanda |
 
 ## 6. Supuestos y decisiones (validadas por el usuario el 2026-11-06)
 - S1 `fecha_registro` = fecha del correo (determinismo).
@@ -107,7 +107,8 @@ Esquema `Contrato`: campos del maestro (§7.2) + `valor_indeterminado` + `confia
 - S6 Confirmación humana: **todo campo ausente o con confianza < 0.8 exige confirmación** (no se asume ni inventa, incluido `comercial`); lo limpio se registra sin preguntar.
 - S7 Salidas en `out/<sessionId>/…` (una carpeta por sesión, aislamiento entre casos) en lugar de un único `out/`; ruta de archivo `Contratos/<año>/<cliente-slug-sin-sufijo-legal>/<id>.<ext>` (convención del maestro existente).
 - S8 Un otrosí hereda del maestro los campos que no trae (no se consideran ausentes).
-- S10 Decisiones del usuario (2026-11-06): `comercial` desconocido sigue pidiendo confirmación; fecha/moneda inválida → `ok:false`; clave de acceso entregada por otro canal (no en README); OCR de escaneados queda declarado como mejora.
+- S11 (11:15, tras la prueba en el chat) El comercial desconocido ya NO bloquea (HU-3) y `fecha_inicio` (fecha del correo + alerta) tampoco: con el criterio anterior el prompt de ejemplo del PRD no llegaba a registrar msg-006 con "confirmo valor 0 y fecha fin 2027-08-31". Bloquean solo valor y fecha_fin.
+- S10 Decisiones del usuario (2026-11-06): fecha/moneda inválida → `ok:false`; clave de acceso entregada por otro canal (no en README); OCR de escaneados queda declarado como mejora.
 - S9 Bonus `modulo/` solo si sobra tiempo.
 - Columnas añadidas al maestro: `estado_contrato`, `alertas`.
 

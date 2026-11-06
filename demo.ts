@@ -20,7 +20,7 @@ const ESPERADO: Record<string, { clasificacion: string; accion: string; revision
   "msg-003": { clasificacion: "actualizacion", accion: "actualizado" },
   "msg-004": { clasificacion: "duplicado", accion: "duplicado" },
   "msg-005": { clasificacion: "rechazado", accion: "rechazado" },
-  "msg-006": { clasificacion: "nuevo", accion: "pendiente de confirmación", revision: ["valor", "fecha_inicio", "fecha_fin", "comercial"] },
+  "msg-006": { clasificacion: "nuevo", accion: "pendiente de confirmación", revision: ["valor", "fecha_fin"] },
 };
 let fallos = 0;
 const verificar = (cond: boolean, msg: string) => { if (!cond) { fallos++; console.log(`   ✗ ${msg}`); } };

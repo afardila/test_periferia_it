@@ -30,7 +30,7 @@ Anthropic **Claude Sonnet 5.5** (`MODEL`, cambiable): buen uso de herramientas y
 
 ## 5. Estrategia de extracción
 - **Determinista primero** (`extraccion.ts`): partes y NIT/RUC por regex (se descarta Periferia), objeto y valor por cláusula, fechas en español ("primero (1) de agosto de 2026"), plazo en meses, póliza por la cláusula de garantías cruzada con el correo, país por domicilio o tipo de identificador.
-- **Confianza por campo**: 0,95–0,98 si el dato es literal; 0,85–0,9 si se infiere o deriva con base explícita; 0,5–0,6 si se supone (fecha de inicio tomada del correo, `fecha_fin` derivada de un plazo en meses, valor por demanda); 0 si no existe (`null`, nunca inventado).
+- **Confianza por campo**: 0,95–0,98 si el dato es literal; 0,85–0,9 si se infiere o deriva con base explícita; 0,8 si se toma una decisión acordada con alerta (fecha de inicio = fecha del correo); 0,5 si se deriva o supone y exige confirmar (`fecha_fin` desde un plazo en meses, valor por demanda); 0 si no existe (`null`, nunca inventado).
 - **PDF**: si el correo trae también un PDF con texto, se extrae con `unpdf` (pdf.js) y se cruza con el TXT; ante cualquier diferencia se deja una observación en `alertas` y **siempre prevalece el TXT**. Un PDF escaneado (sin texto) avisa que requiere OCR.
 - **Dónde entra el modelo**: orquesta, explica y conversa la confirmación; nunca fija valores. Todo valor registrado pasa por `contratos_validar` y `contratos_registrar` (que revalida).
 
@@ -63,8 +63,8 @@ Anthropic **Claude Sonnet 5.5** (`MODEL`, cambiable): buen uso de herramientas y
 
 ## 8. Supuestos
 - `fecha_registro` = fecha del correo (determinismo). Los correos y contratos llegan como texto (sin OCR).
-- msg-006: `valor = 0` por demanda; sin día de firma se toma la fecha del correo como inicio (confianza 0,5) y `fecha_fin` = inicio + 12 meses; moneda COP inferida del umbral de garantías; el marco no exige póliza (la exigen las órdenes de servicio). Todo queda en revisión y anotado en `alertas`.
-- Todo campo ausente o con confianza < 0.8 pide confirmación, incluido un remitente desconocido (comercial).
+- msg-006: `valor = 0` por demanda (a confirmar) y `fecha_fin` = inicio + 12 meses (a confirmar). Sin día de firma se toma la fecha del correo como inicio, anotado en `alertas`; moneda COP inferida del umbral de garantías; el marco no exige póliza (la exigen las órdenes de servicio). Solo valor y fecha_fin bloquean el registro, como en el PRD §7.4.
+- Todo campo ausente o con confianza < 0.8 pide confirmación. Excepción (HU-3): un remitente desconocido no bloquea; se anota en `alertas`.
 - Un otrosí hereda del maestro los campos que no trae; no cambia `estado_poliza`, pero deja la observación de ampliar garantías.
 - Una fecha inexistente o una moneda no soportada en el documento hacen que `extraer`/`registrar` devuelvan `ok:false` (HU-6); un campo simplemente ausente queda `null` y pasa a revisión.
 - La clave de acceso del link se entrega por un canal aparte (no está en el repositorio) por seguridad; el PRD sugiere el README.

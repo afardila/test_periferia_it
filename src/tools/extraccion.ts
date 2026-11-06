@@ -123,7 +123,7 @@ export function extraerContrato(texto: string, ctx: Contexto): Contrato {
   if (indet) {
     fijar("valor", 0, 0.5); c.valor_indeterminado = true; alertas.push("Contrato de valor indeterminado (por demanda): valor = 0, pendiente de confirmación.");
     const m0 = texto.match(/\b(COP|USD|PEN|PAB|HNL)\s*\$?\s*[\d]/);
-    if (m0) fijar("moneda", m0[1] as Contrato["moneda"], 0.6); else conf.moneda = 0;
+    if (m0) fijar("moneda", m0[1] as Contrato["moneda"], 0.85); else conf.moneda = 0; // la única moneda del texto es la de los umbrales de garantía
   } else if (monto) {
     const v = parseMonto(monto[2]);
     fijar("valor", v, 0.95); fijar("moneda", v === null ? null : (monto[1] as Contrato["moneda"]), 0.95);
@@ -147,8 +147,8 @@ export function extraerContrato(texto: string, ctx: Contexto): Contrato {
         const fi = fechasES(inicioExpl[1])[0]!; fijar("fecha_inicio", fi, 0.9); fijar("fecha_fin", sumarMeses(fi, Number(meses[1])), 0.85); alertas.push(`fecha_fin derivada de plazo de ${meses[1]} meses.`);
       } else if (meses) {
         const fi = ctx.fechaCorreo; const n = Number(meses[1]);
-        fijar("fecha_inicio", fi, 0.5); fijar("fecha_fin", sumarMeses(fi, n), 0.5);
-        alertas.push(`No se tiene día de inicio ni de firma: fecha_inicio tomada de la fecha del correo (${fi}); fecha_fin derivada de plazo de ${n} meses. Requiere confirmación.`);
+        fijar("fecha_inicio", fi, 0.8); fijar("fecha_fin", sumarMeses(fi, n), 0.5); // inicio: decisión del usuario (fecha del correo + alerta); fin: derivada, siempre a confirmar
+        alertas.push(`No se tiene día de inicio ni de firma: fecha_inicio tomada de la fecha del correo (${fi}); fecha_fin derivada de plazo de ${n} meses (requiere confirmación).`);
         if (/pr[óo]rroga/i.test(pp)) alertas.push("Prorrogable automáticamente por periodos iguales salvo aviso con 30 días de antelación.");
       } else { conf.fecha_inicio = 0; conf.fecha_fin = 0; }
     }
@@ -163,7 +163,7 @@ export function extraerContrato(texto: string, ctx: Contexto): Contrato {
   const cuerpoSi = /requiere\s+p[óo]liza/i.test(cuerpo) && !/no\s+(requiere|pide)\s+p[óo]liza/i.test(cuerpo);
   const cuerpoNo = /(no\s+(requiere|pide|exige)\s+p[óo]liza|sin\s+p[óo]liza)/i.test(cuerpo);
   if (c.es_otrosi) { conf.requiere_poliza = 0; conf.tipo_poliza = 0; }
-  else if (condicional) { fijar("requiere_poliza", false, 0.6); conf.tipo_poliza = 0; alertas.push("La garantía depende de cada orden de servicio (> COP 100.000.000, póliza de cumplimiento 10 %): no se exige póliza al marco. Confirmar."); }
+  else if (condicional) { fijar("requiere_poliza", false, 0.85); conf.tipo_poliza = 0; alertas.push("La garantía depende de cada orden de servicio (> COP 100.000.000, póliza de cumplimiento 10 %): no se exige póliza al marco. Confirmar."); }
   else if (clausula) {
     fijar("requiere_poliza", true, cuerpoNo ? 0.5 : 0.95);
     if (cuerpoNo) alertas.push("El correo dice que no requiere póliza, pero el contrato la exige.");
