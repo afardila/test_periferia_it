@@ -24,7 +24,7 @@ interface Session {
   store: Store; // estado propio de la sesión: los casos no se contaminan entre sí
   messages: Anthropic.MessageParam[];
   pending?: Pending;
-  usage: { input: number; output: number; cache_read: number; calls: number };
+  usage: { input: number; output: number; cache_read: number; cache_write: number; calls: number };
 }
 
 const sessions = new Map<string, Session>();
@@ -33,7 +33,7 @@ function getSession(id: string): Session {
   let s = sessions.get(id);
   if (!s) {
     if (sessions.size >= MAX_SESSIONS) sessions.delete(sessions.keys().next().value!);
-    sessions.set(id, (s = { store: createStore(), messages: [], usage: { input: 0, output: 0, cache_read: 0, calls: 0 } }));
+    sessions.set(id, (s = { store: createStore(), messages: [], usage: { input: 0, output: 0, cache_read: 0, cache_write: 0, calls: 0 } }));
   }
   return s;
 }
@@ -80,6 +80,7 @@ async function drive(s: Session, out: AgentEvent[]) {
     s.usage.input += resp.usage.input_tokens;
     s.usage.output += resp.usage.output_tokens;
     s.usage.cache_read += resp.usage.cache_read_input_tokens ?? 0;
+    s.usage.cache_write += resp.usage.cache_creation_input_tokens ?? 0;
     s.messages.push({ role: "assistant", content: resp.content });
 
     for (const b of resp.content) if (b.type === "text" && b.text.trim()) out.push({ type: "text", text: b.text });

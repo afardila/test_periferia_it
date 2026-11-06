@@ -65,6 +65,12 @@ Formato Dado/Cuando/Entonces. Cada AC tiene una prueba con su mismo ID (`test/*.
 | AC-26 | + | Cabeceras de seguridad presentes; sin `X-Powered-By` | server.test |
 | AC-27 | + | Estado entregado por sesión; límite de uso → 429 | server.test |
 
+| AC-28 | + | Dado el buzón, cuando se procesa con las herramientas (sin LLM), entonces cada mensaje termina con el resultado esperado | pipeline.test |
+| AC-29 | ! | Dadas dos corridas independientes, entonces los resultados son idénticos (determinismo) | pipeline.test |
+| AC-30 | ! | Dado un orden distinto de procesamiento, entonces cada caso conserva su resultado (independencia) | pipeline.test |
+| AC-31 | − | Dado un mensaje sin contrato, entonces se rechaza con motivo y el maestro no cambia | pipeline.test |
+| AC-32 | + | Dado el texto de un contrato, entonces se clasifica, se convierten las fechas y se marca menor confianza al inferir del remitente | pipeline.test |
+
 ✏️ Añadir AC por cada caso del buzón del PRD (msg-001…msg-006), con su resultado esperado exacto.
 
 ## 6. Matriz de escenarios del buzón

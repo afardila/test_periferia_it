@@ -87,7 +87,7 @@ async function call(url, body) {
   try {
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: sid(), ...body }) });
     const j = await r.json(); wait.remove(); render(j.events || []);
-    if (j.usage) document.getElementById('usage').textContent = `Llamadas al modelo: ${j.usage.calls} · tokens entrada: ${j.usage.input} · salida: ${j.usage.output} · caché leída: ${j.usage.cache_read}`;
+    if (j.usage) document.getElementById('usage').textContent = `Llamadas al modelo: ${j.usage.calls} · tokens entrada: ${j.usage.input} · salida: ${j.usage.output} · caché leída: ${j.usage.cache_read} · caché escrita: ${j.usage.cache_write}`;
   } catch (e) { wait.remove(); add(el('div', 'msg err', 'Error de red: ' + e.message)); }
   busy = false;
 }

@@ -20,7 +20,7 @@ Regla: **a los 90 min, lo que no esté funcionando se recorta**, no se alarga.
 | 45–75 | Implementar en `src/tools/contratos.ts` hasta que todo quede verde; reescribir `CASOS` de `demo.ts` | `npm run typecheck && npm test && npm run demo` en verde |
 | 75–85 | Probar el agente en el chat con cada mensaje real, **uno por sesión** (casos aislados); afinar `agent/prompt.md` solo si falla | 6 mensajes bien resueltos |
 | 85–100 | `git push` → el hosting redepliega; probar la URL pública con los 6 casos | URL pública verificada |
-| 100–117 | Completar `docs/SOLUCION.md` (costos con tokens reales, regla de gobierno, seguridad) | Documento listo |
+| 100–117 | Completar `SOLUCION.md` (costos con tokens reales, regla de gobierno, seguridad) | Documento listo |
 | 117–120 | Revisión final (checklist de abajo) | Entrega |
 
 ## Checklist de entrega
