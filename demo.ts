@@ -4,12 +4,12 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { tools } from "./src/tools/contratos.js";
+import { tools } from "./src/tools/index.js";
 import { llamar, type ToolCtx } from "./src/tools/registry.js";
 import { outDir } from "./src/tools/maestro.js";
 
 const HOY = "2026-09-03";
-const ctx: ToolCtx = { directory: import.meta.dirname, sessionId: "demo" };
+const ctx: ToolCtx = { directory: import.meta.dirname, sessionId: "demo", outDir: "out" }; // PRD 6.6: las salidas van directo en out/
 fs.rmSync(path.join(ctx.directory, "out"), { recursive: true, force: true }); // out/ se limpia al inicio
 type D = Record<string, unknown>;
 const call = (n: string, a: unknown) => llamar(tools, `contratos_${n}`, a, ctx);
@@ -59,11 +59,11 @@ const al = (await call("alertas", { hoy: HOY })).data as { vencen: D[]; polizas_
 console.log(`   vencen ≤60 d / vencidos: ${al.vencen.map((x) => `${x.id_contrato}(${x.dias})`).join(", ")}`);
 console.log(`   pólizas pendientes: ${al.polizas_pendientes.map((x) => x.id_contrato).join(", ")}`);
 console.log(`   registrados desde el corte: ${al.registrados_desde_corte.map((x) => x.id_contrato).join(", ")}`);
-console.log(`   observaciones: ${al.observaciones.length} contrato(s) con alertas · informe: out/demo/alertas.md`);
+console.log(`   observaciones: ${al.observaciones.length} contrato(s) con alertas · informe: out/alertas.md`);
 verificar(JSON.stringify(al.registrados_desde_corte.map((x) => x.id_contrato).sort()) === JSON.stringify(["CM-2026-03", "CT-2026-015", "CT-2026-016"]), "registrados desde corte");
 verificar(fs.existsSync(path.join(outDir(ctx), "alertas.md")), "out/alertas.md");
 const filas = fs.readFileSync(path.join(outDir(ctx), "sharepoint", "maestro-contratos.csv"), "utf8").trim().split("\n").length - 1;
 verificar(filas === 8 + 3, `maestro debía tener 11 filas (tiene ${filas}): sin duplicados`);
 
-console.log(fallos ? `\n✗ ${fallos} verificación(es) fallaron\n` : "\n✓ Todo coincide con lo esperado del PRD (maestro sin duplicados, historial y archivos en out/demo/)\n");
+console.log(fallos ? `\n✗ ${fallos} verificación(es) fallaron\n` : "\n✓ Todo coincide con lo esperado del PRD (maestro sin duplicados, historial y archivos en out/)\n");
 process.exit(fallos ? 1 : 0);

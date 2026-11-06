@@ -67,6 +67,13 @@ Esquema `Contrato`: campos del maestro (§7.2) + `valor_indeterminado` + `confia
 ### HU-6 Errores y lote
 - AC-35 (!) Un mensaje que falla no aborta el lote: `demo.ts` procesa los 6 aun si uno devuelve `ok:false`.
 - AC-36 (!) Moneda desconocida o fecha inválida en el texto → `ok:false` o campo `null` con confianza 0, nunca valor inventado.
+### PDF y módulo reutilizable (alcance ampliado por el usuario)
+- AC-49 (+/−) `leer_pdf{ruta}` devuelve `{texto, paginas}` de un PDF con texto; rechaza rutas fuera de `fixtures/`, no-PDF e inexistentes; un PDF sin texto responde que requiere OCR.
+- AC-50 (+) PDF coherente con el TXT → sin alertas de diferencia.
+- AC-51 (−) PDF distinto del TXT → alerta "difiere del TXT en <campo>… Prevalece el TXT"; el valor registrado es el del TXT.
+- AC-52 (!) Solo PDF → fuente única con aviso; PDF escaneado junto al TXT → aviso de OCR y prevalece el TXT.
+- AC-53 (+) `modulo/` (agent.md, tools, skill) usa las mismas piezas que la app: sincronizado y sin copias divergentes.
+
 ### Ciclo del agente, API y seguridad
 - AC-37 (+) El ciclo termina con respuesta de texto; tope de iteraciones (config, defecto 25) → responde con lo hecho y lo pendiente (CA1).
 - AC-38 (+) Adaptador LLM: interfaz `enviar(mensajes, herramientas)`; el ciclo se prueba con un adaptador falso sin red (CA, §6.1).
@@ -104,4 +111,4 @@ Esquema `Contrato`: campos del maestro (§7.2) + `valor_indeterminado` + `confia
 - Columnas añadidas al maestro: `estado_contrato`, `alertas`.
 
 ## 7. Estado de implementación
-AC-01…AC-48 cubiertos por `test/contratos.test.ts` (AC-01…36), `test/agent.test.ts` (AC-37…43, 46) y `test/server.test.ts` (AC-39, 43…48). `npm run typecheck && npm test && npm run demo` en verde.
+AC-01…AC-53 cubiertos por `test/contratos.test.ts` (AC-01…36), `test/agent.test.ts` (AC-37…43, 46) y `test/server.test.ts` (AC-39, 43…48), `test/pdf.test.ts` (AC-49…52) y `test/modulo.test.ts` (AC-53). `npm run typecheck && npm test && npm run demo` en verde.

@@ -24,6 +24,11 @@ export function fixturesDir(ctx: ToolCtx): string {
 /** Carpeta de salida de ESTA sesión: los casos no se contaminan entre sí. */
 export function outDir(ctx: ToolCtx): string {
   if (!ID_SESION.test(ctx.sessionId)) throw new Error("sessionId inválido");
+  if (ctx.outDir) {
+    const d = path.resolve(ctx.directory, ctx.outDir);
+    if (!d.startsWith(path.resolve(ctx.directory, "out"))) throw new Error("outDir debe estar dentro de out/");
+    return d;
+  }
   return path.resolve(ctx.directory, "out", ctx.sessionId);
 }
 export const sharepointDir = (ctx: ToolCtx) => path.join(outDir(ctx), "sharepoint");
@@ -119,3 +124,15 @@ export function leerTextoOut(ctx: ToolCtx, rel: string): string | null {
   return fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null;
 }
 export const borrarSalida = (ctx: ToolCtx) => fs.rmSync(outDir(ctx), { recursive: true, force: true });
+
+/** Bytes de un adjunto PDF del buzón (solo lectura, nombre saneado). */
+export function leerBytesAdjunto(ctx: ToolCtx, id: string, nombre: string): Uint8Array | null {
+  if (path.basename(nombre) !== nombre || nombre.includes("..")) return null;
+  const p = path.join(fixturesDir(ctx), "buzon", id, nombre);
+  return fs.existsSync(p) ? new Uint8Array(fs.readFileSync(p)) : null;
+}
+/** Resuelve una ruta relativa a fixtures/ y exige que quede dentro (anti path traversal). */
+export function rutaEnFixtures(ctx: ToolCtx, rel: string): string | null {
+  const base = fixturesDir(ctx); const p = path.resolve(base, rel);
+  return p.startsWith(base + path.sep) && fs.existsSync(p) ? p : null;
+}

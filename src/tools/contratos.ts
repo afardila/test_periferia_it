@@ -2,34 +2,63 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { defineTool, nombrar, ok, fail, type ToolCtx } from "./registry.js";
+import { defineTool, ok, fail, type ToolCtx, type ToolDef } from "./registry.js";
 import {
-  COLUMNAS, ID_CONTRATO, ID_MENSAJE, FECHA_CORTE, appendHistorial, appendLog, fixturesDir, guardarMaestro, leerAdjunto, leerComerciales,
+  COLUMNAS, ID_CONTRATO, ID_MENSAJE, FECHA_CORTE, appendHistorial, appendLog, fixturesDir, guardarMaestro, leerAdjunto, leerBytesAdjunto, leerComerciales, rutaEnFixtures,
   leerCorreo, leerMaestro, leerProcesados, listarIdsBuzon, marcarProcesado, outDir, sharepointDir, type Correo, type Fila,
 } from "./maestro.js";
+import { textoDePdf } from "./pdf.js";
 import { CAMPOS_DATO, ContratoSchema, UMBRAL, esFechaValida, diasEntre, esContrato, extraerContrato, motivoNoContrato, similitud, slug, type Contrato } from "./extraccion.js";
 
 const idMensaje = z.string().describe("Id del mensaje del buzón, p. ej. msg-001");
 const fechaCorreo = (c: Correo) => c.fecha.slice(0, 10);
 
-type Analisis = { correo: Correo; adjunto: string | null; texto: string | null; motivo: string | null };
-/** Decide si el mensaje trae un contrato (RN4) y devuelve el texto del adjunto contractual. */
-function analizar(ctx: ToolCtx, id: string): Analisis {
-  const correo = leerCorreo(ctx, id);
-  let ultimo: { nombre: string; texto: string | null } | null = null;
-  for (const nombre of correo.adjuntos) {
-    const r = leerAdjunto(ctx, id, nombre);
-    const texto = "texto" in r ? r.texto : null;
-    if (texto && esContrato(texto)) return { correo, adjunto: nombre, texto, motivo: null };
-    ultimo = { nombre, texto };
+type Analisis = { correo: Correo; adjunto: string | null; texto: string | null; motivo: string | null; avisos: string[] };
+const contexto = (ctx: ToolCtx, correo: Correo) => ({ de: correo.de, asunto: correo.asunto, cuerpo: correo.cuerpo, fechaCorreo: fechaCorreo(correo), comerciales: leerComerciales(ctx) });
+const CRUCE = ["id_contrato", "cliente", "nit_cliente", "valor", "moneda", "fecha_inicio", "fecha_fin", "requiere_poliza", "tipo_poliza"] as const;
+
+/** Lee los PDF adjuntos (si los hay) y los cruza con el contrato en texto. El TXT siempre prevalece: el PDF solo genera avisos. */
+async function cruzarConPdf(ctx: ToolCtx, correo: Correo, textoTxt: string): Promise<string[]> {
+  const avisos: string[] = []; const base = extraerContrato(textoTxt, contexto(ctx, correo));
+  for (const nombre of correo.adjuntos.filter((n) => /\.pdf$/i.test(n))) {
+    const bytes = leerBytesAdjunto(ctx, correo.id, nombre);
+    if (!bytes) { avisos.push(`PDF "${nombre}" no encontrado: no se pudo validar contra el TXT.`); continue; }
+    let pdf: string;
+    try { pdf = (await textoDePdf(bytes)).texto; } catch { avisos.push(`PDF "${nombre}" ilegible: no se pudo validar contra el TXT.`); continue; }
+    if (!pdf.trim()) { avisos.push(`PDF "${nombre}" sin capa de texto (¿escaneado?): requiere OCR para validarlo; prevalece el TXT.`); continue; }
+    const delPdf = extraerContrato(pdf, contexto(ctx, correo));
+    for (const k of CRUCE) {
+      if (delPdf[k] === null || base[k] === null) continue;
+      if (String(delPdf[k]).toLowerCase() !== String(base[k]).toLowerCase()) avisos.push(`El PDF "${nombre}" difiere del TXT en ${k}: txt=${base[k]}, pdf=${delPdf[k]}. Prevalece el TXT.`);
+    }
   }
-  return { correo, adjunto: null, texto: null, motivo: motivoNoContrato(ultimo?.nombre ?? null, ultimo?.texto ?? null) };
+  return avisos;
 }
 
-function extraerDe(ctx: ToolCtx, id: string): { contrato: Contrato; a: Analisis } | { rechazo: string; a: Analisis } {
-  const a = analizar(ctx, id);
+/** Decide si el mensaje trae un contrato (RN4) y devuelve el texto contractual. Prioridad: TXT; si no hay, el texto del PDF. */
+async function analizar(ctx: ToolCtx, id: string): Promise<Analisis> {
+  const correo = leerCorreo(ctx, id);
+  let ultimo: { nombre: string; texto: string | null } | null = null;
+  for (const nombre of correo.adjuntos.filter((n) => !/\.pdf$/i.test(n))) {
+    const r = leerAdjunto(ctx, id, nombre);
+    const texto = "texto" in r ? r.texto : null;
+    if (texto && esContrato(texto)) return { correo, adjunto: nombre, texto, motivo: null, avisos: await cruzarConPdf(ctx, correo, texto) };
+    ultimo = { nombre, texto };
+  }
+  for (const nombre of correo.adjuntos.filter((n) => /\.pdf$/i.test(n))) { // sin TXT: el PDF es la única fuente
+    const bytes = leerBytesAdjunto(ctx, id, nombre);
+    const texto = bytes ? await textoDePdf(bytes).then((r) => r.texto, () => "") : "";
+    if (texto && esContrato(texto)) return { correo, adjunto: nombre, texto, motivo: null, avisos: [`Fuente única: PDF "${nombre}" (no hay contrato.txt); validar con el original.`] };
+    ultimo = ultimo ?? { nombre, texto: texto || null };
+  }
+  return { correo, adjunto: null, texto: null, motivo: motivoNoContrato(ultimo?.nombre ?? null, ultimo?.texto ?? null), avisos: [] };
+}
+
+async function extraerDe(ctx: ToolCtx, id: string): Promise<{ contrato: Contrato; a: Analisis } | { rechazo: string; a: Analisis }> {
+  const a = await analizar(ctx, id);
   if (!a.texto) return { rechazo: a.motivo ?? "sin contrato", a };
-  const contrato = extraerContrato(a.texto, { de: a.correo.de, asunto: a.correo.asunto, cuerpo: a.correo.cuerpo, fechaCorreo: fechaCorreo(a.correo), comerciales: leerComerciales(ctx) });
+  const contrato = extraerContrato(a.texto, contexto(ctx, a.correo));
+  contrato.alertas.push(...a.avisos);
   return { contrato, a };
 }
 
@@ -95,40 +124,41 @@ function archivar(ctx: ToolCtx, origen: { id: string; adjunto: string }, destino
 }
 
 // ───────── Herramientas
-export const leer_buzon = defineTool({
+export const leer_buzon = conLog("leer_buzon", defineTool({
   description: "Lista los mensajes del buzón aún no procesados con { id, de, asunto, fecha, adjuntos, tiene_contrato } (y el motivo si no traen contrato).",
   args: {},
   async execute(_a, ctx) {
     const hechos = leerProcesados(ctx);
-    const mensajes = listarIdsBuzon(ctx).filter((id) => !(id in hechos)).map((id) => {
-      const a = analizar(ctx, id);
-      return { id, de: a.correo.de, asunto: a.correo.asunto, fecha: a.correo.fecha, adjuntos: a.correo.adjuntos, tiene_contrato: a.texto !== null, ...(a.texto ? {} : { motivo: a.motivo }) };
-    });
+    const mensajes = [];
+    for (const id of listarIdsBuzon(ctx).filter((x) => !(x in hechos))) {
+      const a = await analizar(ctx, id);
+      mensajes.push({ id, de: a.correo.de, asunto: a.correo.asunto, fecha: a.correo.fecha, adjuntos: a.correo.adjuntos, tiene_contrato: a.texto !== null, ...(a.texto ? {} : { clasificacion: "rechazado", motivo: a.motivo }) });
+    }
     return ok({ mensajes });
   },
-});
+}));
 
-export const extraer = defineTool({
+export const extraer = conLog("extraer", defineTool({
   description: "Extrae del contrato adjunto de un mensaje los datos estructurados con confianza [0,1] por campo; lo ausente es null con confianza 0. Falla si el mensaje no trae contrato.",
   args: { mensaje_id: idMensaje },
   async execute({ mensaje_id }, ctx) {
-    const r = extraerDe(ctx, mensaje_id);
+    const r = await extraerDe(ctx, mensaje_id);
     if ("rechazo" in r) return fail(`El mensaje ${mensaje_id} no contiene un contrato: ${r.rechazo}`);
     return ok({ ...r.contrato, adjunto: r.a.adjunto, remitente: r.a.correo.de, fecha_correo: fechaCorreo(r.a.correo) });
   },
-});
+}));
 
-export const validar = defineTool({
+export const validar = conLog("validar", defineTool({
   description: "Clasifica el contrato extraído como nuevo, actualizacion, duplicado o rechazado (RN1–RN4) y lista los campos que requieren revisión humana (confianza < 0.8, ausentes o en conflicto con el maestro). Sin 'contrato' evalúa el mensaje (útil para rechazados).",
   args: { mensaje_id: idMensaje, contrato: ContratoSchema.optional().describe("Contrato tal como lo devolvió contratos_extraer (con las correcciones del humano si las hay)") },
   async execute({ mensaje_id, contrato }, ctx) {
-    const r = contrato ? { contrato, a: analizar(ctx, mensaje_id) } : extraerDe(ctx, mensaje_id);
+    const r = contrato ? { contrato, a: await analizar(ctx, mensaje_id) } : await extraerDe(ctx, mensaje_id);
     if ("rechazo" in r) return ok({ clasificacion: "rechazado", motivo: r.rechazo, requiere_revision: [] });
     return ok(evaluar(ctx, r.contrato));
   },
-});
+}));
 
-export const registrar = defineTool({
+export const registrar = conLog("registrar", defineTool({
   description: "Registra en el maestro (nuevo/actualización), archiva el documento y deja historial. Solo escribe si no hay campos en revisión o si confirmado=true tras la respuesta explícita del usuario. Duplicados y rechazados no escriben.",
   args: {
     mensaje_id: idMensaje,
@@ -139,7 +169,7 @@ export const registrar = defineTool({
     const previo = leerProcesados(ctx)[mensaje_id];
     if (previo) return ok({ id_contrato: previo.id_contrato ?? null, accion: "ya_procesado", ruta_archivo: null, detalle: `El mensaje ya se procesó (${previo.accion}).` });
 
-    const r = contrato ? { contrato, a: analizar(ctx, mensaje_id) } : extraerDe(ctx, mensaje_id);
+    const r = contrato ? { contrato, a: await analizar(ctx, mensaje_id) } : await extraerDe(ctx, mensaje_id);
     if ("rechazo" in r || !r.a.texto || !r.a.adjunto) {
       marcarProcesado(ctx, mensaje_id, "rechazado");
       return ok({ id_contrato: null, accion: "rechazado", ruta_archivo: null, motivo: "rechazo" in r ? r.rechazo : r.a.motivo });
@@ -189,9 +219,21 @@ export const registrar = defineTool({
     marcarProcesado(ctx, mensaje_id, "insertado", id);
     return ok({ id_contrato: id, accion: "insertado", ruta_archivo: rel });
   },
-});
+}));
 
-export const alertas = defineTool({
+export const leer_pdf = conLog("leer_pdf", defineTool({
+  description: "Lee el texto de un PDF con capa de texto del buzón (ruta relativa a fixtures/, p. ej. buzon/msg-001/contrato.pdf). Un PDF escaneado sin texto devuelve error: requiere OCR.",
+  args: { ruta: z.string().min(1).max(200).describe("Ruta relativa a fixtures/reto-02, p. ej. buzon/msg-001/contrato.pdf") },
+  async execute({ ruta }, ctx) {
+    if (!/\.pdf$/i.test(ruta)) return fail("La ruta debe apuntar a un archivo .pdf");
+    const p = rutaEnFixtures(ctx, ruta); if (!p) return fail(`No existe el PDF "${ruta}" dentro de fixtures/`);
+    const r = await textoDePdf(new Uint8Array(fs.readFileSync(p)));
+    if (!r.texto.trim()) return fail("El PDF no tiene capa de texto (¿escaneado?): requiere OCR, no disponible en esta versión.");
+    return ok({ texto: r.texto, paginas: r.paginas });
+  },
+}));
+
+export const alertas = conLog("alertas", defineTool({
   description: "Genera out/alertas.md con contratos que vencen en ≤ 60 días (y vencidos), pólizas pendientes y contratos registrados desde el corte; actualiza estado_contrato. 'hoy' es la fecha de referencia YYYY-MM-DD.",
   args: { hoy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(esFechaValida, "fecha inexistente").describe("Fecha de referencia YYYY-MM-DD") },
   async execute({ hoy }, ctx) {
@@ -214,21 +256,21 @@ export const alertas = defineTool({
     const ruta = path.join(outDir(ctx), "alertas.md"); fs.mkdirSync(outDir(ctx), { recursive: true }); fs.writeFileSync(ruta, md);
     return ok({ ruta: "out/alertas.md", vencen, polizas_pendientes, registrados_desde_corte, observaciones: obs });
   },
-});
+}));
 
-// ───────── Registro y log (RN7)
-const base = { leer_buzon, extraer, validar, registrar, alertas };
-const conLog = Object.fromEntries(Object.entries(base).map(([k, t]) => [k, {
-  ...t,
-  async execute(raw: unknown, ctx: ToolCtx) {
-    const out = await t.execute(raw, ctx);
-    try {
-      const r = JSON.parse(out) as { ok: boolean; error?: string; data?: { accion?: string; clasificacion?: string } };
-      const mid = typeof (raw as { mensaje_id?: unknown })?.mensaje_id === "string" && ID_MENSAJE.test((raw as { mensaje_id: string }).mensaje_id) ? (raw as { mensaje_id: string }).mensaje_id : null;
-      appendLog(ctx, { herramienta: `contratos_${k}`, mensaje_id: mid, ok: r.ok, resumen: r.ok ? r.data?.accion ?? r.data?.clasificacion ?? "ok" : String(r.error).slice(0, 200) });
-    } catch { /* el log nunca debe romper la herramienta */ }
-    return out;
-  },
-}]));
-export const tools = nombrar("contratos", conLog);
-export { COLUMNAS };
+// ───────── Log (RN7): cada herramienta exportada ya registra su llamada en out/log.jsonl
+function conLog(nombre: string, t: ToolDef): ToolDef {
+  return {
+    ...t,
+    async execute(raw: unknown, ctx: ToolCtx) {
+      const out = await t.execute(raw, ctx);
+      try {
+        const r = JSON.parse(out) as { ok: boolean; error?: string; data?: { accion?: string; clasificacion?: string } };
+        const m = (raw as { mensaje_id?: unknown } | null)?.mensaje_id;
+        const mid = typeof m === "string" && ID_MENSAJE.test(m) ? m : null;
+        appendLog(ctx, { herramienta: `contratos_${nombre}`, mensaje_id: mid, ok: r.ok, resumen: r.ok ? r.data?.accion ?? r.data?.clasificacion ?? "ok" : String(r.error).slice(0, 200) });
+      } catch { /* el log nunca debe romper la herramienta */ }
+      return out;
+    },
+  };
+}

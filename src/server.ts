@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import type { Agente } from "./agent.js";
-import { tools } from "./tools/contratos.js";
+import { tools } from "./tools/index.js";
 
 const SESSION_ID = /^[A-Za-z0-9-]{8,64}$/;
 const MAX_MESSAGE = 8000;
@@ -49,7 +49,7 @@ export function createApp({ agente }: { agente: Agente }) {
     next();
   });
 
-  app.use(express.static(fileURLToPath(new URL("../public", import.meta.url))));
+  app.use(express.static(fileURLToPath(new URL("../web", import.meta.url))));
   const bad = (res: express.Response, message: string) => res.status(400).json({ reply: message, events: [{ type: "error", message }] });
 
   app.get("/api/tools", (_req, res) => res.json(tools.map((t) => ({ name: t.name, description: t.description }))));

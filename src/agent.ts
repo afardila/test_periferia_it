@@ -1,7 +1,7 @@
 /** Ciclo del agente: modelo → herramientas → modelo… con tope de iteraciones y de tokens, y confirmación humana. */
 import fs from "node:fs";
 import path from "node:path";
-import { tools } from "./tools/contratos.js";
+import { tools } from "./tools/index.js";
 import { ejecutar, paraLLM, type ToolCtx } from "./tools/registry.js";
 import { borrarSalida, leerProcesados, leerTextoOut, maestroSinCrear, type Fila, type Procesados } from "./tools/maestro.js";
 import { ErrorLLM, type Bloque, type LLM, type Mensaje, type Uso } from "./llm/adapter.js";

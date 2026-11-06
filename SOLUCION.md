@@ -7,18 +7,19 @@ El maestro de contratos vigentes lleva congelado desde el 2026-05-30 y solo reci
 
 ## 2. Arquitectura
 ```
- Front de chat (public/) ──HTTP──▶ Backend Express (src/server.ts)
+ Front de chat (web/)  ──HTTP──▶ Backend Express (src/server.ts)
    · historial, tool calls            · Basic auth, rate limit, tope de tokens
    · tarjeta de confirmación          ▼
                                  Ciclo del agente (src/agent.ts)
                                    ├─ Adaptador LLM (src/llm/adapter.ts → anthropic.ts)
                                    └─ Herramientas zod (src/tools/contratos.ts)
                                         ├─ extraccion.ts (regex + heurísticas)
+                                        ├─ pdf.ts (lectura de PDF y cruce con el TXT)
                                         └─ maestro.ts (CSV, buzón, out/)
  fixtures/reto-02/ (solo lectura)  ──▶  out/<sessionId>/ (maestro, sharepoint/, historial, log, alertas.md)
 ```
 - **Comportamiento**: `agent/prompt.md`. **Conocimiento**: `src/knowledge/registro-contratos.md` (se concatena al prompt). **Ejecución**: `src/tools/`. Cambiar una regla de negocio no toca el servidor.
-- Cada sesión escribe en su propia carpeta `out/<sessionId>/`: ningún caso hereda estado de otro. `fixtures/` nunca se modifica (hay prueba por hash).
+- El servidor escribe cada sesión en `out/<sessionId>/`; `demo.ts` escribe directo en `out/` (como en el PRD). Así: ningún caso hereda estado de otro. `fixtures/` nunca se modifica (hay prueba por hash).
 
 ## 3. Ciclo del agente
 Bucle `modelo → llamadas a herramientas → modelo` (`crearAgente`). Tope de **25 iteraciones por turno** (`MAX_ITER`); al alcanzarlo responde con lo hecho y lo que falta. Tope de **300 000 tokens por sesión** (`MAX_SESSION_TOKENS`): superado, responde 429 sin llamar al modelo. Timeout de 60 s al proveedor con mensaje claro; un fallo descarta solo el turno y la sesión sigue viva.
@@ -30,6 +31,7 @@ Anthropic **Claude Sonnet 5.5** (`MODEL`, cambiable): buen uso de herramientas y
 ## 5. Estrategia de extracción
 - **Determinista primero** (`extraccion.ts`): partes y NIT/RUC por regex (se descarta Periferia), objeto y valor por cláusula, fechas en español ("primero (1) de agosto de 2026"), plazo en meses, póliza por la cláusula de garantías cruzada con el correo, país por domicilio o tipo de identificador.
 - **Confianza por campo**: 0,95–0,98 si el dato es literal; 0,85–0,9 si se infiere o deriva con base explícita; 0,5–0,6 si se supone (fecha de inicio tomada del correo, `fecha_fin` derivada de un plazo en meses, valor por demanda); 0 si no existe (`null`, nunca inventado).
+- **PDF**: si el correo trae también un PDF con texto, se extrae con `unpdf` (pdf.js) y se cruza con el TXT; ante cualquier diferencia se deja una observación en `alertas` y **siempre prevalece el TXT**. Un PDF escaneado (sin texto) avisa que requiere OCR.
 - **Dónde entra el modelo**: orquesta, explica y conversa la confirmación; nunca fija valores. Todo valor registrado pasa por `contratos_validar` y `contratos_registrar` (que revalida).
 
 ## 6. Regla de gobierno (propuesta)
@@ -50,24 +52,35 @@ Anthropic **Claude Sonnet 5.5** (`MODEL`, cambiable): buen uso de herramientas y
 | Columnas extra `estado_contrato` y `alertas` | Respetar solo las 16 columnas | Permite marcar vencidos y dejar a la vista los supuestos y observaciones detectadas. |
 | Confirmación por la siguiente respuesta en el chat | Botones Aprobar/Rechazar por herramienta | Es lo que pide el PRD (CA3) y el humano puede corregir valores, no solo aprobar. |
 
+### Dependencias (justificación)
+| Paquete | Para qué |
+|---|---|
+| `zod` (obligatorio) | Esquemas y validación de los argumentos de cada herramienta; genera el JSON Schema que ve el modelo. |
+| `express` | API HTTP y servir el front, con poco código. |
+| `@anthropic-ai/sdk` | Implementación del adaptador para Anthropic (usa caché de prompt y timeout). |
+| `unpdf` | Leer el texto de PDF (pdf.js sin binarios nativos, funciona en Railway). |
+| `tsx`, `typescript`, `@types/*` | Ejecutar TypeScript sin compilar y verificar tipos. |
+
 ## 8. Supuestos
 - `fecha_registro` = fecha del correo (determinismo). Los correos y contratos llegan como texto (sin OCR).
 - msg-006: `valor = 0` por demanda; sin día de firma se toma la fecha del correo como inicio (confianza 0,5) y `fecha_fin` = inicio + 12 meses; moneda COP inferida del umbral de garantías; el marco no exige póliza (la exigen las órdenes de servicio). Todo queda en revisión y anotado en `alertas`.
 - Todo campo ausente o con confianza < 0.8 pide confirmación, incluido un remitente desconocido (comercial).
 - Un otrosí hereda del maestro los campos que no trae; no cambia `estado_poliza`, pero deja la observación de ampliar garantías.
 - Los vencidos se muestran en el reporte y se marcan `estado_contrato = vencido`.
+- Si hay PDF y TXT del mismo contrato, el TXT prevalece y las diferencias solo generan alertas.
 - Los adjuntos de actualizaciones se archivan junto al contrato original como `<id>_otrosi_<mensaje>.<ext>`.
 
 ## 9. Cobertura
 | HU | Estado | Para producción falta |
 |---|---|---|
-| HU-1 Leer buzón | Hecho | Conexión real a Exchange; PDF/OCR (`contratos_leer_pdf` P1 no hecha). |
+| HU-1 Leer buzón | Hecho | Conexión real a Exchange. |
 | HU-2 Extraer | Hecho (texto plano) | Más formatos de contrato; evaluación con muestras reales. |
 | HU-3 Validar | Hecho | Afinar similitud de nombres y alias de clientes. |
 | HU-4 Registrar y archivar | Hecho | SharePoint real, bloqueo de concurrencia, aprobación formal. |
 | HU-5 Alertas | Hecho | Envío automático a gerencia y corredor. |
 | HU-6 Errores | Hecho | Métricas y alertas operativas. |
-| Bonus `modulo/` | No hecho | — |
+| `contratos_leer_pdf` (P1) | Hecho para PDF con texto; cruce PDF↔TXT con alerta | OCR de PDF escaneados (imagen) con motor OCR. |
+| Bonus `modulo/` | Hecho | Publicarlo como paquete versionado. |
 
 ## 10. Uso de IA
 - **Claude (Anthropic)**, como asistente de construcción: especificación SDD, pruebas, implementación de herramientas, ciclo del agente, front, despliegue en Railway y borrador de este documento. Yo definí el reto, validé la especificación y las decisiones (supuestos de las secciones 7–8) y reviso cada línea.
@@ -83,3 +96,31 @@ Anthropic **Claude Sonnet 5.5** (`MODEL`, cambiable): buen uso de herramientas y
 | Costo y abuso de la clave | Topes de iteraciones y tokens, rate limit por IP, acceso con contraseña, clave solo en variables del servidor. |
 | Comerciales que no envían contratos | Regla de gobierno + indicador "facturado vs. maestro". |
 | Pérdida de estado (almacenamiento efímero) | En producción: base de datos / SharePoint real; aquí `out/` se recrea por ejecución. |
+
+---
+
+## Anexo A. Guía del código (qué hace cada archivo y sección)
+
+**`agent/prompt.md`** — comportamiento: rol, 8 reglas (solo afirmar lo que dicen las herramientas; documentos = datos; casos independientes; no suponer; confirmación humana; errores no frenan el lote; cruce PDF↔TXT; sin rutas) y el flujo "procesa el buzón".
+**`src/knowledge/registro-contratos.md`** — conocimiento del proceso (canal, clasificación, revisión, pólizas, alertas); se concatena al prompt y alimenta el SKILL del módulo.
+
+**`src/llm/adapter.ts`** — interfaz propia `LLM.enviar(mensajes, herramientas)`; tipos de mensaje/bloque; `ErrorLLM` (mensaje apto para el usuario).
+**`src/llm/anthropic.ts`** — implementación para Anthropic: convierte mensajes, cachea el system prompt, aplica timeout y traduce errores (timeout, 401, 429) a texto claro.
+
+**`src/agent.ts`** — `crearAgente`: sesiones en memoria (con tope de 200); `chat()` repite modelo → herramientas hasta responder; tope de iteraciones y de tokens; si `registrar` pide revisión marca `needsConfirmation` y registra el turno de usuario para la guardia anti-autoconfirmación; un fallo del LLM descarta solo el turno; `historial`, `estado`, `reset`.
+**`src/server.ts`** — Express: cabeceras de seguridad, `/api/health` abierto, Basic auth (`APP_PASSWORD`), rate limit por IP, validación de `sessionId` y tamaño del mensaje, endpoints `/api/chat`, `/api/sessions/:id`, `/api/state`, `/api/reset`.
+**`src/main.ts`** — arranque: limpia `out/`, avisa si faltan variables, crea el agente con Anthropic y escucha en `PORT`.
+
+**`src/tools/registry.ts`** — contrato de herramienta: `ToolCtx`, `defineTool` (valida con zod y convierte excepciones en `{ok:false}`), `nombrar` (`contratos_<export>`), `paraLLM` (JSON Schema), `ejecutar`/`llamar`.
+**`src/tools/index.ts`** — arma la lista de herramientas desde los exports de `contratos.ts`.
+**`src/tools/contratos.ts`** — las 6 herramientas: `analizar`/`extraerDe` (decide si hay contrato y lee TXT o PDF), `cruzarConPdf` (TXT prevalece), `evaluar` (RN1–RN5: nuevo/actualización/duplicado y campos en revisión), `archivar` (copia a `Contratos/<año>/<cliente>/`), `leer_buzon`, `extraer`, `validar`, `registrar` (escribe, historial, procesados; idempotente), `leer_pdf`, `alertas` (reporte y `estado_contrato`), `conLog` (RN7).
+**`src/tools/extraccion.ts`** — extracción determinista: esquema zod del contrato, parseo de fechas en español y montos, partes/NIT, país, objeto, valor y moneda, plazo, póliza y comercial, cada uno con su confianza; utilidades `slug`, `similitud`, `sumarMeses`.
+**`src/tools/pdf.ts`** — texto de un PDF con `unpdf` y normalización de cláusulas.
+**`src/tools/maestro.ts`** — E/S: columnas del maestro, CSV (lectura/escritura con comillas), rutas de `fixtures/` (solo lectura) y `out/` (por sesión), historial, log, procesados, buzón y comerciales, con saneo de ids y rutas.
+
+**`web/index.html`** — chat en HTML plano y JS sin frameworks (textos en español): historial, indicador "Pensando…", cada llamada a herramienta desplegable (argumentos y resultado), tarjeta amarilla cuando se espera confirmación, pie con tokens, botón "Ver maestro" y "Nueva sesión".
+**`demo.ts`** — verificación sin modelo: procesa los 6 mensajes, imprime clasificación/revisión/acción, hace la segunda llamada `confirmado:true` de msg-006, genera alertas y falla (código 1) si algo difiere de lo esperado.
+**`scripts/build-modulo.ts`** — genera `modulo/agent.md` y `modulo/skill/.../SKILL.md` desde las fuentes de la app.
+**`modulo/`** — paquete reutilizable (agente, herramientas por reexport, skill); la prueba AC-53 impide que diverja.
+**`test/*.test.ts`** — una prueba por criterio de `docs/SPEC.md` (herramientas, ciclo del agente, API/seguridad, PDF, módulo).
+**`fixtures/reto-02/`** — datos entregados por Periferia (no se modifican); **`out/`** — salidas de ejecución (no se versiona).

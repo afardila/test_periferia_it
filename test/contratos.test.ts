@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { tools } from "../src/tools/contratos.js";
+import { tools } from "../src/tools/index.js";
 import { llamar, type ToolCtx } from "../src/tools/registry.js";
 import { leerMaestro, outDir } from "../src/tools/maestro.js";
 
@@ -32,12 +32,12 @@ test("AC-01 [+] leer_buzon lista los 6 mensajes con el formato del PRD", async (
   const r = await call("leer_buzon", {}, nuevoCtx());
   const m = data(r).mensajes as D[];
   assert.equal(m.length, 6);
-  for (const x of m) assert.deepEqual(Object.keys(x).sort(), ["adjuntos", "asunto", "de", "fecha", "id", "tiene_contrato"].concat(x.motivo ? ["motivo"] : []).sort());
+  for (const x of m) assert.deepEqual(Object.keys(x).sort(), ["adjuntos", "asunto", "de", "fecha", "id", "tiene_contrato"].concat(x.motivo ? ["clasificacion", "motivo"] : []).sort());
 });
 test("AC-02 [+] solo msg-005 (cotización) trae tiene_contrato=false con motivo", async () => {
   const m = data(await call("leer_buzon", {}, nuevoCtx())).mensajes as D[];
   assert.deepEqual(m.filter((x) => !x.tiene_contrato).map((x) => x.id), ["msg-005"]);
-  assert.match(m.find((x) => x.id === "msg-005")!.motivo, /cotizaci/i);
+  assert.match(m.find((x) => x.id === "msg-005")!.motivo, /cotizaci/i); assert.equal(m.find((x) => x.id === "msg-005")!.clasificacion, "rechazado");
 });
 test("AC-03 [+] los mensajes ya procesados no se listan", async () => {
   const ctx = nuevoCtx();

@@ -5,6 +5,8 @@ import type { HerramientaLLM } from "../llm/adapter.js";
 export interface ToolCtx {
   directory: string;
   sessionId: string;
+  /** Carpeta de salida (relativa a directory). Por defecto out/<sessionId>; la demo usa "out" (PRD 6.6). */
+  outDir?: string;
   /** Guardia opcional del ciclo del agente: ¿ya hubo respuesta humana para confirmar este mensaje? */
   puedeConfirmar?: (mensajeId: string) => boolean;
 }
