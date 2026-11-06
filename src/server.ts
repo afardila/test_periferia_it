@@ -65,7 +65,7 @@ export function createApp() {
   app.get("/api/tools", (_req, res) =>
     res.json(tools.map((t) => ({ name: t.name, requiresConfirmation: Boolean(t.requiresConfirmation), description: t.description }))));
 
-  // Estado del maestro simulado DE ESA SESIÓN (para mostrar antes/después en la defensa)
+  // Estado del maestro simulado DE ESA SESIÓN (para revisar el antes/después de cada operación)
   app.get("/api/state", (req, res) => {
     const sid = String(req.query.sessionId ?? "");
     if (!SESSION_ID.test(sid)) return bad(res, "sessionId inválido");

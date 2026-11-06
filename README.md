@@ -1,34 +1,51 @@
-# Esqueleto del agente (Prueba IA – Periferia IT Group)
+# Agente de recepción de contratos
 
-Agente conversacional en TypeScript (Node 20+) con herramientas tipadas en zod, confirmación humana para escrituras, chat web, verificación sin LLM y despliegue listo. Orientado al **Reto 2 (contratos)**; el núcleo (`registry.ts`, `agent.ts`, `server.ts`, `public/`) sirve igual para los Retos 1 y 3.
+Agente conversacional en TypeScript (Node 20+) que actúa como punto único de recepción de correos con contratos, otrosíes y cotizaciones: los clasifica, extrae los datos con nivel de confianza por campo, registra o actualiza el maestro de contratos (SharePoint simulado), archiva los documentos y genera reportes de alertas de vencimiento. Toda escritura requiere confirmación humana.
 
-## Uso rápido
-```bash
-npm install
-cp .env.example .env        # y pon tu ANTHROPIC_API_KEY
-npm test                    # 32 pruebas: reglas, agente (modelo simulado) y seguridad HTTP
-npm run demo                # verificación sin LLM (datos ficticios en fixtures-demo/)
-npm start                   # http://localhost:3000 (lee .env automáticamente)
+**URL pública:** https://agente-contratos-production.up.railway.app (acceso con usuario y clave)
+
+## Estructura
+```
+agent/prompt.md            System prompt del agente
+src/tools/contratos.ts     Herramientas tipadas con zod (reglas de negocio)
+src/tools/registry.ts      Validación y ejecución de herramientas
+src/agent.ts               Bucle del agente y confirmación humana
+src/server.ts, main.ts     Backend HTTP (acceso, límites, cabeceras)
+src/data.ts                Datos simulados, estado aislado por sesión
+src/pipeline.ts            Procesamiento determinista del buzón (sin LLM)
+public/index.html          Chat con llamadas a herramientas y tarjeta de confirmación
+demo.ts                    Verificación sin LLM: procesa el buzón llamando a las herramientas
+test/*.test.ts             Pruebas automáticas (reglas, agente, seguridad, pipeline)
+docs/SPEC.md               Especificación (SDD): reglas, criterios de aceptación, trazabilidad
+SOLUCION.md                Documentación técnica y de proceso
+fixtures-demo/             Datos ficticios de ejemplo
 ```
 
-## Qué cambiar el día de la prueba
-1. `FIXTURES_DIR` → carpeta descomprimida del reto (`fixtures/reto-02`).
-2. `src/data.ts` → `COLUMNAS` y rutas al formato real.
-3. `src/tools/contratos.ts` → reglas del PRD (umbral, campos obligatorios, duplicados…).
-4. `agent/prompt.md` → ajustes de clasificación del PRD.
-5. `demo.ts` → `CASOS` con los mensajes reales y resultados esperados.
-6. `SOLUCION.md` → completar los ✏️.
+## Ejecución local
+```bash
+npm install
+cp .env.example .env        # completar ANTHROPIC_API_KEY y APP_PASSWORD
+npm start                   # http://localhost:3000
+```
 
-Para otro reto: crear `src/tools/oc.ts` (Reto 3) o `src/tools/proveedor.ts` (Reto 1) y cambiar el import en `src/agent.ts` y `src/server.ts`.
+## Verificación
+```bash
+npm run typecheck
+npm test                    # pruebas positivas, negativas y de excepción
+npm run demo                # procesa el buzón con las herramientas, sin LLM
+```
+
+## Variables de entorno
+| Variable | Descripción |
+|---|---|
+| `ANTHROPIC_API_KEY` | Clave de la API del modelo (solo como variable de entorno) |
+| `APP_PASSWORD` | Clave de acceso a la aplicación (HTTP Basic, usuario libre) |
+| `MODEL` | Modelo a usar (por defecto `claude-sonnet-5-5`) |
+| `FIXTURES_DIR` | Carpeta de datos (maestro, comerciales, buzón) |
+| `FECHA_CORTE` | Fecha de corte para las alertas de vencimiento |
+| `RATE_LIMIT_PER_MIN` | Límite de solicitudes por IP por minuto |
 
 ## Despliegue
-- **Railway / Render:** conectar el repo de GitHub; variables `ANTHROPIC_API_KEY` y `MODEL`; comando de inicio `npm start`. (`render.yaml` y `Dockerfile` incluidos.)
-- **Respaldo:** `npx cloudflared tunnel --url http://localhost:3000`.
+Railway conectado a la rama `main` (Dockerfile incluido); comprobación de salud en `/api/health`.
 
-Seguridad: define `APP_PASSWORD` (clave de acceso) en el hosting; sin ella la app queda abierta y avisa en consola. `RATE_LIMIT_PER_MIN` limita el uso por IP.
-
-Metodología SDD: `docs/SPEC.md` → pruebas → código.
-
-Más: `docs/PLAN-2H.md` (cronograma), `docs/DEFENSA.md` (preguntas probables), `SOLUCION.md` (plantilla).
-
-> Los datos de `fixtures-demo/` son ficticios. No uses información real de ninguna entidad en la prueba.
+Detalles de arquitectura, ciclo del agente, decisiones, costos y regla de gobierno: ver [SOLUCION.md](SOLUCION.md).

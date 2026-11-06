@@ -5,7 +5,7 @@
  * Cada ejecución usa un Store propio: nada se hereda entre casos. Dos corridas dan resultados idénticos.
  * Uso: npm run demo   (código de salida 1 si algo falla)
  *
- * ⚠️ El día de la prueba: ajustar ESPERADO a los mensajes reales y las reglas del PRD.
+ * Nota: ESPERADO refleja los mensajes de fixtures-demo; debe alinearse con los mensajes reales y las reglas del PRD.
  */
 import { createStore } from "./src/data.js";
 import { executeTool } from "./src/tools/registry.js";

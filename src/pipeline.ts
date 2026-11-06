@@ -8,7 +8,7 @@ import type { Store } from "./data.js";
  *   1) demo.ts: demostrar robustez y determinismo sin consumir un LLM;
  *   2) pruebas: fijar el comportamiento esperado de cada mensaje del buzón;
  *   3) línea base: lo que el agente debe reproducir cuando interpreta el texto.
- * ⚠️ El día de la prueba: ajustar las expresiones al formato real de los mensajes del PRD.
+ * Nota: las expresiones regulares cubren los formatos de fixtures-demo; ajustarlas si cambia el formato de los mensajes.
  */
 export type Clasificacion = "nuevo" | "otrosi" | "duplicado" | "no_contrato";
 export interface Resultado {

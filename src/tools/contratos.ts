@@ -7,7 +7,7 @@ import {
 /**
  * Herramientas del Reto 2 (contratos). Cada criterio de aceptación está en docs/SPEC.md (AC-xx)
  * y tiene su prueba en test/contratos.test.ts.
- * ⚠️ Las reglas de negocio son un PUNTO DE PARTIDA; el día de la prueba se ajustan al PRD.md.
+ * Nota: las reglas de negocio de este archivo deben mantenerse alineadas con el PRD.md.
  */
 export const UMBRAL_CONFIANZA = 0.75;
 const CAMPOS_EDITABLES = ["fecha_fin", "valor", "objeto", "estado", "comercial_email"] as const;

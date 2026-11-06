@@ -1,8 +1,8 @@
 # SPEC — Especificación (SDD)
 
-> Orden de trabajo del día de la prueba: **1) completar esta especificación desde el PRD → 2) escribir/ajustar las pruebas → 3) implementar hasta que pasen → 4) desplegar → 5) documentar.**
+> Metodología: especificación → pruebas → implementación → despliegue → documentación.
 > Regla: no se escribe código para algo que no tenga un criterio de aceptación (AC) aquí.
-> ✏️ = completar con el PRD real. Los AC ya escritos son los del esqueleto genérico; ajústalos, no los borres.
+> ✏️ = pendiente de completar con el PRD.
 
 ## 1. Contexto y objetivo
 Agente que recibe correos con contratos/otrosíes/cotizaciones, los clasifica, extrae datos con confianza por campo, opera el maestro de contratos (SharePoint simulado), archiva y alerta vencimientos. ✏️ _(objetivo de negocio y métricas del PRD)_
@@ -90,4 +90,4 @@ Formato Dado/Cuando/Entonces. Cada AC tiene una prueba con su mismo ID (`test/*.
 - **Costo:** tope de iteraciones, caché de prompt, tokens visibles en la UI.
 
 ## 8. Cómo se verifica
-`npm run typecheck && npm test && npm run demo` — todo en verde antes de desplegar y de nuevo contra la URL pública (ver docs/PLAN-2H.md).
+`npm run typecheck && npm test && npm run demo` — todo en verde antes de desplegar y de nuevo contra la URL pública.

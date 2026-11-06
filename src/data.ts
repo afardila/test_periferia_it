@@ -5,7 +5,7 @@ import path from "node:path";
  * Capa de datos simulada (el "SharePoint" del reto).
  * - Los fixtures (maestro base, comerciales, buzón) son de SOLO LECTURA y compartidos.
  * - Todo lo que se escribe vive en un Store POR SESIÓN: un caso nunca ve lo que otro registró.
- * ⚠️ El día de la prueba: ajustar nombres de columnas/archivos al PRD real (COLUMNAS y rutas).
+ * Nota: COLUMNAS y las rutas de archivos deben coincidir con el formato real de los datos del PRD.
  */
 export const FIXTURES = path.resolve(process.env.FIXTURES_DIR ?? "./fixtures-demo");
 export const FECHA_CORTE = process.env.FECHA_CORTE ?? "2026-05-30";
